@@ -29,14 +29,15 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── Gemini Setup (Free Tier Safe: gemini-2.0-flash) ───────────────────────────
+// ─── Gemini Setup (Free Tier Safe: gemini-3.5-flash-lite) ───────────────────────────
+const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 let GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 let genAI = null;
 let model = null;
 
 if (GEMINI_API_KEY) {
   genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  model = genAI.getGenerativeModel({ model: MODEL_NAME });
 } else {
   console.warn('⚠️ GEMINI_API_KEY not set yet. Create a .env file or set GEMINI_API_KEY environment variable.');
 }
@@ -87,7 +88,7 @@ async function callGemini(prompt, retries = 2) {
   if (!model) {
     if (process.env.GEMINI_API_KEY) {
       genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      model = genAI.getGenerativeModel({ model: MODEL_NAME });
     } else {
       throw new Error('GEMINI_API_KEY is not configured. Please add GEMINI_API_KEY=... in your .env file.');
     }
@@ -523,8 +524,8 @@ app.listen(PORT, () => {
 ╔══════════════════════════════════════════════════════╗
 ║   🧠 Grounded Knowledge-Graph Q&A                   ║
 ║   Server running at http://localhost:${PORT}            ║
-║   Model: gemini-2.0-flash (free tier safe)           ║
-║   Rate limit: 10 RPM (safety margin under 15 RPM)   ║
+║   Model: ${MODEL_NAME} (Fastest & Free-Tier Safe)
+║   Rate limit: 10 RPM (safety margin under 15 RPM)
 ╚══════════════════════════════════════════════════════╝
   `);
 });
