@@ -64,52 +64,7 @@
   <!-- ─── Main Adaptive Workspace (Exploration vs Chat-Expanded) ────────── -->
   <main id="app-workspace" class="workspace layout-exploration">
 
-    <!-- ─── LEFT: Expanded Chat Workspace Panel ───────────────────────── -->
-    <section id="chat-panel" class="chat-panel" aria-label="Grounded AI Chat Workspace">
-      <div class="chat-header">
-        <div class="chat-header-title">
-          <div class="chat-title-row">
-            <span class="chat-badge">AI COPILOT</span>
-            <h3>💬 Grounded Q&A</h3>
-          </div>
-          <span class="chat-sub">Answers cite exact sources · strict abstention</span>
-        </div>
-        <button id="btn-collapse-chat" class="btn-collapse" title="Collapse chat to exploration mode" aria-label="Collapse chat">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
-      </div>
-
-      <!-- Quick Presets -->
-      <div id="quick-prompts-bar" class="quick-prompts-bar">
-        <button class="prompt-pill" data-query="Which physical server room houses the computing cluster allocated to the team that Sarah Jenkins leads?">🔀 Multi-Hop</button>
-        <button class="prompt-pill" data-query="What is the approved operating budget for Project Alpha across the documents?">⚠️ Conflict</button>
-        <button class="prompt-pill" data-query="What is the public release date and ticket pricing for the Quantum Computing initiative?">🚫 Abstention</button>
-      </div>
-
-      <!-- Chat Messages Container -->
-      <div id="chat-messages" class="chat-messages" role="log" aria-live="polite">
-        <div class="chat-welcome">
-          <div class="welcome-icon">🧠</div>
-          <h3>Welcome to GraphMind</h3>
-          <p>Upload documents or load the demo scenario, then ask questions grounded strictly in the knowledge graph.</p>
-          <div class="welcome-features">
-            <div class="feature"><span>📊</span> Multi-hop graph reasoning</div>
-            <div class="feature"><span>⚖️</span> Cross-document conflict detection</div>
-            <div class="feature"><span>🚫</span> Zero-hallucination abstention</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Chat Input Area -->
-      <div class="chat-input-area">
-        <textarea id="chat-input" placeholder="Ask a question about your documents..." rows="1" aria-label="Ask question"></textarea>
-        <button id="btn-send" class="btn-send" disabled title="Send question" aria-label="Send">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-        </button>
-      </div>
-    </section>
-
-    <!-- ─── RIGHT / CENTER: Graph & Analytics Workspace ───────────────── -->
+    <!-- ─── LEFT / CENTER: Graph & Analytics Workspace ───────────────── -->
     <section id="graph-workspace-panel" class="graph-workspace-panel">
 
       <!-- Upload Bar (compact & persistent) -->
@@ -195,6 +150,51 @@
         </div>
       </section>
 
+    </section>
+
+    <!-- ─── RIGHT: Expanded Chat Workspace Panel ───────────────────────── -->
+    <section id="chat-panel" class="chat-panel" aria-label="Grounded AI Chat Workspace">
+      <div class="chat-header">
+        <div class="chat-header-title">
+          <div class="chat-title-row">
+            <span class="chat-badge">AI COPILOT</span>
+            <h3>💬 Grounded Q&A</h3>
+          </div>
+          <span class="chat-sub">Answers cite exact sources · strict abstention</span>
+        </div>
+        <button id="btn-collapse-chat" class="btn-collapse" title="Collapse chat to exploration mode" aria-label="Collapse chat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Quick Presets -->
+      <div id="quick-prompts-bar" class="quick-prompts-bar">
+        <button class="prompt-pill" data-query="Which physical server room houses the computing cluster allocated to the team that Sarah Jenkins leads?">🔀 Multi-Hop</button>
+        <button class="prompt-pill" data-query="What is the approved operating budget for Project Alpha across the documents?">⚠️ Conflict</button>
+        <button class="prompt-pill" data-query="What is the public release date and ticket pricing for the Quantum Computing initiative?">🚫 Abstention</button>
+      </div>
+
+      <!-- Chat Messages Container -->
+      <div id="chat-messages" class="chat-messages" role="log" aria-live="polite">
+        <div class="chat-welcome">
+          <div class="welcome-icon">🧠</div>
+          <h3>Welcome to GraphMind</h3>
+          <p>Upload documents or load the demo scenario, then ask questions grounded strictly in the knowledge graph.</p>
+          <div class="welcome-features">
+            <div class="feature"><span>📊</span> Multi-hop graph reasoning</div>
+            <div class="feature"><span>⚖️</span> Cross-document conflict detection</div>
+            <div class="feature"><span>🚫</span> Zero-hallucination abstention</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat Input Area -->
+      <div class="chat-input-area">
+        <textarea id="chat-input" placeholder="Ask a question about your documents..." rows="1" aria-label="Ask question"></textarea>
+        <button id="btn-send" class="btn-send" disabled title="Send question" aria-label="Send">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
     </section>
   </main>
 
