@@ -3,6 +3,9 @@
 // ─── State ─────────────────────────────────────────────────────────────────────
 let graphData = { entities: [], relationships: [], documents: [] };
 let network = null;
+let activePulseNodes = [];
+let pulseAnimFrame = null;
+let pulseRadius = 0;
 
 // ─── Entity Type Colors ────────────────────────────────────────────────────────
 const TYPE_COLORS = {
@@ -219,6 +222,43 @@ function renderGraph() {
   network = new vis.Network(container, { nodes, edges }, options);
   window.network = network;
 
+  // ─── Pulsing Sonar / Radar Halo Animation Hook ───
+  network.on('afterDrawing', (ctx) => {
+    if (!activePulseNodes || activePulseNodes.length === 0) return;
+    try {
+      const positions = network.getPositions(activePulseNodes);
+      ctx.save();
+      for (const id of activePulseNodes) {
+        const pos = positions[id];
+        if (!pos) continue;
+        const alpha = Math.max(0, 0.75 - (pulseRadius / 26));
+
+        // Primary outer pulsing ripple ring
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 18 + pulseRadius, 0, 2 * Math.PI, false);
+        ctx.strokeStyle = `rgba(168, 85, 247, ${alpha})`;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#a855f7';
+        ctx.shadowBlur = 12;
+        ctx.stroke();
+
+        // Inner harmonic glow ring
+        const innerRadius = Math.max(0, pulseRadius - 8);
+        const innerAlpha = Math.max(0, 0.85 - (innerRadius / 20));
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 14 + innerRadius, 0, 2 * Math.PI, false);
+        ctx.strokeStyle = `rgba(236, 72, 153, ${innerAlpha})`;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = '#ec4899';
+        ctx.shadowBlur = 8;
+        ctx.stroke();
+      }
+      ctx.restore();
+    } catch (e) {
+      // ignore transient render frame errors
+    }
+  });
+
   network.once('stabilizationIterationsDone', () => {
     network.fit({ animation: { duration: 350, easingFunction: 'easeInOutQuad' } });
   });
@@ -233,8 +273,12 @@ function renderGraph() {
   }, 250);
 
   network.on('click', (params) => {
-    if (params.nodes.length > 0) showNodeDetail(params.nodes[0]);
-    else nodeDetail.classList.add('hidden');
+    if (params.nodes.length > 0) {
+      showNodeDetail(params.nodes[0]);
+    } else {
+      nodeDetail.classList.add('hidden');
+      stopPulseLoop();
+    }
   });
 }
 
@@ -323,19 +367,63 @@ async function sendQuestion() {
   scrollChatBottom();
 }
 
+function startPulseLoop() {
+  if (pulseAnimFrame) cancelAnimationFrame(pulseAnimFrame);
+  const startTime = Date.now();
+  function pulseTick() {
+    if (!activePulseNodes || activePulseNodes.length === 0) return;
+    const elapsed = (Date.now() - startTime) % 1500;
+    pulseRadius = (elapsed / 1500) * 22; // 0 to 22px expansion
+    if (network) network.redraw();
+    pulseAnimFrame = requestAnimationFrame(pulseTick);
+  }
+  pulseAnimFrame = requestAnimationFrame(pulseTick);
+}
+
+function stopPulseLoop() {
+  activePulseNodes = [];
+  if (pulseAnimFrame) {
+    cancelAnimationFrame(pulseAnimFrame);
+    pulseAnimFrame = null;
+  }
+  if (network) network.redraw();
+}
+
 function highlightGraphNodes(nodeIds) {
   if (!network || !nodeIds || !nodeIds.length) return;
   try {
-    network.selectNodes(nodeIds, true);
-    network.fit({
-      nodes: nodeIds,
-      animation: {
-        duration: 600,
-        easingFunction: 'easeInOutQuad',
-      },
+    activePulseNodes = [...nodeIds];
+    startPulseLoop();
+
+    // ─── Step-by-Step Traversal Animation (Hops light up in sequence) ───
+    nodeIds.forEach((nodeId, idx) => {
+      setTimeout(() => {
+        if (!network) return;
+        const currentHop = nodeIds.slice(0, idx + 1);
+        network.selectNodes(currentHop, true);
+      }, idx * 280);
     });
+
+    // ─── Smooth Camera Glide Framing the Entire Path ───
+    const fitDelay = nodeIds.length * 280 + 120;
+    setTimeout(() => {
+      if (!network) return;
+      network.selectNodes(nodeIds, true);
+      network.fit({
+        nodes: nodeIds,
+        animation: {
+          duration: 750,
+          easingFunction: 'easeInOutQuad',
+        },
+      });
+    }, fitDelay);
+
+    // Auto-dim pulse after 8.5 seconds
+    setTimeout(() => {
+      stopPulseLoop();
+    }, 8500);
   } catch (err) {
-    console.warn('Could not highlight nodes:', err);
+    console.warn('Could not animate highlighted nodes:', err);
   }
 }
 
@@ -358,11 +446,15 @@ function addBotMessage(data) {
 
   if (data.reasoning_path && data.reasoning_path.length > 0) {
     html += `<div class="msg-path" title="Click any entity to focus in the graph">`;
+    let nodeIndex = 0;
     data.reasoning_path.forEach(step => {
       if (step.startsWith('→') || step.startsWith('←')) {
-        html += `<span class="path-arrow">${escapeHtml(step)}</span>`;
+        const arrowDelay = (nodeIndex * 0.25).toFixed(2);
+        html += `<span class="path-arrow" style="animation-delay: ${arrowDelay}s">${escapeHtml(step)}</span>`;
       } else {
-        html += `<span class="path-node" data-node-name="${escapeHtml(step)}" style="cursor: pointer;" title="Click to focus">${escapeHtml(step)}</span>`;
+        const delay = (nodeIndex * 0.25).toFixed(2);
+        html += `<span class="path-node path-node-animated" data-node-name="${escapeHtml(step)}" style="animation-delay: ${delay}s; cursor: pointer;" title="Click to focus">${escapeHtml(step)}</span>`;
+        nodeIndex++;
       }
     });
     html += `</div>`;
