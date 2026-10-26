@@ -230,6 +230,36 @@ const knowledgeGraph = {
     return { entities, relationships: relevantRels };
   },
 
+  // Shortest path between two entities (BFS, up to maxDepth hops)
+  findPath(startId, endId, maxDepth = 6) {
+    if (startId === endId) return [startId];
+    const visited = new Set([startId]);
+    const queue = [[startId]];
+
+    while (queue.length > 0) {
+      const path = queue.shift();
+      const current = path[path.length - 1];
+      if (path.length > maxDepth) continue;
+
+      for (const rel of this.relationships) {
+        let neighbor = null;
+        if (rel.source === current) neighbor = rel.target;
+        else if (rel.target === current) neighbor = rel.source;
+
+        if (neighbor) {
+          if (neighbor === endId) {
+            return [...path, endId];
+          }
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push([...path, neighbor]);
+          }
+        }
+      }
+    }
+    return null;
+  },
+
   // Detect conflicting facts about same entity pair
   findConflicts(entityIds) {
     const conflicts = [];
@@ -624,9 +654,21 @@ app.post('/api/query', async (req, res) => {
     let entityIds = Array.from(matchedEntities);
     if (entityIds.length === 0) {
       entityIds = Array.from(knowledgeGraph.entities.keys()).slice(0, 20);
+    } else if (entityIds.length >= 2) {
+      // Find hidden 3rd-party intermediary bridges between mentioned topics
+      const bridgeNodes = new Set(entityIds);
+      for (let i = 0; i < entityIds.length; i++) {
+        for (let j = i + 1; j < entityIds.length; j++) {
+          const path = knowledgeGraph.findPath(entityIds[i], entityIds[j], 6);
+          if (path && path.length > 2) {
+            path.forEach(nodeId => bridgeNodes.add(nodeId));
+          }
+        }
+      }
+      entityIds = Array.from(bridgeNodes);
     }
 
-    // Get subgraph with 2-hop neighborhood
+    // Get subgraph with 2-hop neighborhood around all entities and intermediary bridges
     const subgraph = knowledgeGraph.getSubgraph(entityIds, 2);
     const conflicts = knowledgeGraph.findConflicts(entityIds);
 
