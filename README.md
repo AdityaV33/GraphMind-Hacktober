@@ -1,4 +1,7 @@
 # GraphMind — Grounded Knowledge-Graph Q&A
+## Live Demo
+
+[View Live Website](https://graphmind-hacktober.onrender.com/)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-v18%2B-green.svg)](https://nodejs.org/)
