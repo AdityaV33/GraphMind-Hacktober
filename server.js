@@ -498,16 +498,41 @@ RULES:
 
 // ─── Q&A Prompt ────────────────────────────────────────────────────────────────
 function buildQAPrompt(question, subgraph, conflicts) {
-  const factsText = subgraph.relationships.map(r => {
+  const relFacts = subgraph.relationships.map(r => {
     const srcEntity = subgraph.entities.find(e => e.id === r.source);
     const tgtEntity = subgraph.entities.find(e => e.id === r.target);
     const docName = knowledgeGraph.documents.get(r.documentId)?.name || 'unknown';
     return `- ${srcEntity?.name || r.source} --[${r.relation}]--> ${tgtEntity?.name || r.target} (Source: "${r.sourceText}" from ${docName}) [confidence: ${r.confidence}]`;
+  });
+
+  // Entities with sources & descriptions (grounded evidence for each entity)
+  const entitiesText = subgraph.entities.map(e => {
+    const sourcesList = (e.sources || []).map(s => {
+      const docName = knowledgeGraph.documents.get(s.documentId)?.name || s.documentId;
+      return `"${docName}"${s.sourceText ? ` (Quote: "${s.sourceText}")` : ''}`;
+    }).join('; ');
+    return `- ${e.name} (${e.type}): ${e.description || 'No description'}${sourcesList ? ` | Sources: ${sourcesList}` : ''}`;
   }).join('\n');
 
-  const entitiesText = subgraph.entities.map(e =>
-    `- ${e.name} (${e.type}): ${e.description || 'No description'}`
-  ).join('\n');
+  // Grounded facts for entities without outgoing/incoming relationships in this subgraph
+  const entitiesWithRels = new Set();
+  subgraph.relationships.forEach(r => {
+    entitiesWithRels.add(r.source);
+    entitiesWithRels.add(r.target);
+  });
+
+  const entityFacts = subgraph.entities
+    .filter(e => !entitiesWithRels.has(e.id))
+    .map(e => {
+      const srcText = (e.sources || []).map(s => {
+        const docName = knowledgeGraph.documents.get(s.documentId)?.name || s.documentId;
+        return `documented in "${docName}"${s.sourceText ? ` ("${s.sourceText}")` : ''}`;
+      }).join(', ');
+      return `- ${e.name} (${e.type}) is ${srcText || 'present in the knowledge graph'}. (Note: It has no direct relationship edges to other entities currently mapped).`;
+    });
+
+  const allFacts = [...relFacts, ...entityFacts];
+  const factsText = allFacts.join('\n');
 
   const conflictsText = conflicts.length > 0
     ? `\n\nCONFLICTING FACTS DETECTED:\n${conflicts.map(c =>
@@ -519,7 +544,7 @@ function buildQAPrompt(question, subgraph, conflicts) {
 
   return `You are a knowledge graph Q&A assistant. Answer the question using ONLY the facts provided below. Do NOT use any outside knowledge.
 
-KNOWN ENTITIES:
+KNOWN ENTITIES & THEIR SOURCES:
 ${entitiesText || 'None found relevant.'}
 
 KNOWN FACTS (from the knowledge graph):
@@ -529,11 +554,12 @@ ${conflictsText}
 QUESTION: "${question}"
 
 RULES:
-1. Answer ONLY from the facts above. If the facts don't contain enough info, say "I cannot answer this based on the available documents."
+1. Answer ONLY from the facts and entity sources provided above. If the facts don't contain enough info to answer the question, say "I cannot answer this based on the available documents."
 2. For EVERY claim in your answer, cite the source document and quote the supporting text.
-3. If there are CONFLICTING facts, present ALL sides with their sources. Do not pick one.
-4. For multi-hop questions (A relates to B, B relates to C, therefore A connects to C), explicitly trace the path.
-5. NEVER fabricate information. If unsure, say so.
+3. If asked about an entity that has no relationships, explain what the entity is based on its description and source documents, and note that it has no direct relationship connections in the graph.
+4. If there are CONFLICTING facts, present ALL sides with their sources. Do not pick one.
+5. For multi-hop questions (A relates to B, B relates to C, therefore A connects to C), explicitly trace the path.
+6. NEVER fabricate information. If unsure, say so.
 
 Respond with valid JSON:
 {
@@ -710,15 +736,28 @@ app.post('/api/query', async (req, res) => {
       });
     }
 
-    // Find relevant entities from the question
-    const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    // Find relevant entities from the question:
+    // 1. Direct name match (e.g. "What role does Phase 1 — Scaffold & Backend play...")
+    const qLower = question.toLowerCase();
     const matchedEntities = new Set();
 
-    for (const word of words) {
-      for (const [id, entity] of knowledgeGraph.entities) {
-        const name = entity.name.toLowerCase();
-        if (name.includes(word) || word.includes(name) || knowledgeGraph._similarity(name, word) > 0.4) {
-          matchedEntities.add(id);
+    for (const [id, entity] of knowledgeGraph.entities) {
+      const name = (entity.name || '').toLowerCase();
+      if (name && name.length >= 2 && qLower.includes(name)) {
+        matchedEntities.add(id);
+      }
+    }
+
+    // 2. If no direct name matches, match by significant keywords (>3 letters, ignoring common stop words)
+    if (matchedEntities.size === 0) {
+      const stopWords = new Set(['what', 'does', 'play', 'role', 'what', 'are', 'its', 'their', 'which', 'where', 'when', 'from', 'with', 'about', 'describe', 'relationships', 'sources', 'explain', 'show', 'tell']);
+      const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w));
+      for (const word of words) {
+        for (const [id, entity] of knowledgeGraph.entities) {
+          const name = entity.name.toLowerCase();
+          if (name.includes(word) || word.includes(name) || knowledgeGraph._similarity(name, word) > 0.4) {
+            matchedEntities.add(id);
+          }
         }
       }
     }
