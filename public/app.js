@@ -205,6 +205,9 @@ function renderGraph() {
   }));
 
   const options = {
+    autoResize: true,
+    height: '100%',
+    width: '100%',
     physics: {
       barnesHut: { gravitationalConstant: -4000, centralGravity: 0.3, springLength: 120, springConstant: 0.04, damping: 0.09 },
       stabilization: { iterations: 150 },
@@ -214,12 +217,33 @@ function renderGraph() {
   };
 
   network = new vis.Network(container, { nodes, edges }, options);
+  window.network = network;
+
+  network.once('stabilizationIterationsDone', () => {
+    network.fit({ animation: { duration: 350, easingFunction: 'easeInOutQuad' } });
+  });
+  network.once('stabilized', () => {
+    network.fit();
+  });
+  setTimeout(() => {
+    if (network) {
+      network.setSize('100%', '100%');
+      network.fit();
+    }
+  }, 250);
 
   network.on('click', (params) => {
     if (params.nodes.length > 0) showNodeDetail(params.nodes[0]);
     else nodeDetail.classList.add('hidden');
   });
 }
+
+window.addEventListener('resize', () => {
+  if (network) {
+    network.setSize('100%', '100%');
+    network.fit();
+  }
+});
 
 function showNodeDetail(nodeId) {
   const entity = graphData.entities.find(e => e.id === nodeId);
