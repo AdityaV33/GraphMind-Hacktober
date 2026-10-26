@@ -52,7 +52,6 @@ function showLoading(text = 'Processing...') {
   loadingText.textContent = text;
   loadingOverlay.classList.remove('hidden');
 }
-
 function hideLoading() {
   loadingOverlay.classList.add('hidden');
 }
@@ -66,47 +65,32 @@ function updateStats() {
 
 // ─── File Upload ───────────────────────────────────────────────────────────────
 dropZone.addEventListener('click', () => fileInput.click());
-
-dropZone.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  dropZone.classList.add('drag-over');
-});
-
-dropZone.addEventListener('dragleave', () => {
-  dropZone.classList.remove('drag-over');
-});
-
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('drag-over'); });
 dropZone.addEventListener('drop', (e) => {
   e.preventDefault();
   dropZone.classList.remove('drag-over');
-  const files = e.dataTransfer.files;
-  if (files.length) uploadFiles(files);
+  if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
 });
-
 fileInput.addEventListener('change', () => {
   if (fileInput.files.length) uploadFiles(fileInput.files);
   fileInput.value = '';
 });
 
 async function uploadFiles(files) {
-  for (const file of files) {
-    await uploadSingleFile(file);
-  }
+  for (const file of files) await uploadSingleFile(file);
 }
 
 async function uploadSingleFile(file) {
-  showLoading(`Extracting entities from "${file.name}"...`);
+  showLoading(`Extracting from "${file.name}"...`);
   try {
     const formData = new FormData();
     formData.append('file', file);
-
     const res = await fetch('/api/upload', { method: 'POST', body: formData });
     const data = await res.json();
-
     if (!res.ok) throw new Error(data.error || 'Upload failed');
-
     graphData = data.graph;
-    addDocItem(data.documentName, data.extracted.entities);
+    addDocChip(data.documentName, data.extracted.entities);
     updateStats();
     renderGraph();
     hideLoading();
@@ -124,8 +108,7 @@ pasteInput.addEventListener('input', () => {
 btnPasteSubmit.addEventListener('click', async () => {
   const text = pasteInput.value.trim();
   if (!text) return;
-
-  showLoading('Extracting entities from pasted text...');
+  showLoading('Extracting from pasted text...');
   try {
     const res = await fetch('/api/upload', {
       method: 'POST',
@@ -134,9 +117,8 @@ btnPasteSubmit.addEventListener('click', async () => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
-
     graphData = data.graph;
-    addDocItem(data.documentName, data.extracted.entities);
+    addDocChip(data.documentName, data.extracted.entities);
     updateStats();
     renderGraph();
     pasteInput.value = '';
@@ -148,16 +130,13 @@ btnPasteSubmit.addEventListener('click', async () => {
   }
 });
 
-// ─── Document List ─────────────────────────────────────────────────────────────
-function addDocItem(name, entityCount) {
+// ─── Document Chips ────────────────────────────────────────────────────────────
+function addDocChip(name, entityCount) {
   docList.classList.remove('hidden');
-  const div = document.createElement('div');
-  div.className = 'doc-item';
-  div.innerHTML = `
-    <span class="doc-item-name">${escapeHtml(name)}</span>
-    <span class="doc-item-badge">${entityCount} entities</span>
-  `;
-  docItems.appendChild(div);
+  const chip = document.createElement('span');
+  chip.className = 'doc-chip';
+  chip.innerHTML = `📄 ${escapeHtml(name)} <span class="chip-badge">${entityCount}</span>`;
+  docItems.appendChild(chip);
 }
 
 // ─── Graph Rendering ───────────────────────────────────────────────────────────
@@ -166,7 +145,7 @@ function renderGraph() {
   container.innerHTML = '';
 
   if (graphData.entities.length === 0) {
-    container.innerHTML = '<div class="graph-empty"><p>Upload documents to build the knowledge graph</p></div>';
+    container.innerHTML = '<div class="graph-empty"><div class="empty-state"><span class="empty-icon">🔗</span><p>Upload documents or click <strong>⚡ Load Demo</strong></p><p class="empty-sub">Entities and relationships will appear here</p></div></div>';
     return;
   }
 
@@ -179,7 +158,7 @@ function renderGraph() {
     legend.innerHTML += `<span class="legend-item"><span class="legend-dot" style="background:${color}"></span>${type}</span>`;
   }
 
-  // Conflict visualizer in legend & badge
+  // Conflict badge
   const hasConflicts = graphData.relationships.some(r => r.isConflict);
   if (hasConflicts) {
     legend.innerHTML += `<span class="legend-item conflict-item"><span class="legend-line-conflict"></span>⚠️ Conflict</span>`;
@@ -188,7 +167,7 @@ function renderGraph() {
     if (conflictBadge) conflictBadge.classList.add('hidden');
   }
 
-  // Build vis.js nodes
+  // Nodes
   const nodes = new vis.DataSet(graphData.entities.map(e => ({
     id: e.id,
     label: e.name,
@@ -199,25 +178,13 @@ function renderGraph() {
       hover: { background: lightenColor(TYPE_COLORS[e.type] || TYPE_COLORS.unknown, 30), border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown },
     },
     shape: TYPE_SHAPES[e.type] || 'dot',
-    size: 18 + Math.min(e.sources?.length || 0, 5) * 4,
-    font: {
-      color: '#e8e8f0',
-      size: 12,
-      face: 'Inter, sans-serif',
-      strokeWidth: 3,
-      strokeColor: '#0a0a0f',
-    },
+    size: 16 + Math.min(e.sources?.length || 0, 5) * 3,
+    font: { color: '#e8e8f0', size: 11, face: 'Inter, sans-serif', strokeWidth: 3, strokeColor: '#0c0c12' },
     borderWidth: 2,
-    shadow: {
-      enabled: true,
-      color: TYPE_COLORS[e.type] || TYPE_COLORS.unknown,
-      size: 8,
-      x: 0,
-      y: 0,
-    },
+    shadow: { enabled: true, color: TYPE_COLORS[e.type] || TYPE_COLORS.unknown, size: 6, x: 0, y: 0 },
   })));
 
-  // Build vis.js edges (with distinct Amber Dashed styling for conflicts)
+  // Edges (amber dashed for conflicts)
   const edges = new vis.DataSet(graphData.relationships.map((r, i) => {
     const isConflict = Boolean(r.isConflict);
     return {
@@ -226,27 +193,12 @@ function renderGraph() {
       to: r.target,
       label: r.relation,
       arrows: 'to',
-      color: isConflict ? {
-        color: '#f59e0b',
-        highlight: '#fbbf24',
-        hover: '#fbbf24',
-      } : {
-        color: r.confidence === 'high' ? 'rgba(139, 92, 246, 0.6)' :
-               r.confidence === 'medium' ? 'rgba(245, 158, 11, 0.5)' :
-               'rgba(107, 114, 128, 0.4)',
-        highlight: '#8b5cf6',
-        hover: '#8b5cf6',
+      color: isConflict ? { color: '#f59e0b', highlight: '#fbbf24', hover: '#fbbf24' } : {
+        color: r.confidence === 'high' ? 'rgba(139,92,246,0.6)' : r.confidence === 'medium' ? 'rgba(245,158,11,0.5)' : 'rgba(107,114,128,0.4)',
+        highlight: '#8b5cf6', hover: '#8b5cf6',
       },
       dashes: isConflict ? [6, 4] : (r.confidence === 'low'),
-      font: {
-        color: isConflict ? '#fbbf24' : '#9898b0',
-        size: isConflict ? 11 : 10,
-        face: 'Inter, sans-serif',
-        strokeWidth: 2,
-        strokeColor: '#0a0a0f',
-        align: 'top',
-        bold: isConflict,
-      },
+      font: { color: isConflict ? '#fbbf24' : '#9898b0', size: isConflict ? 10 : 9, face: 'Inter, sans-serif', strokeWidth: 2, strokeColor: '#0c0c12', align: 'top' },
       width: isConflict ? 3 : (r.confidence === 'high' ? 2 : 1),
       smooth: { type: 'continuous', roundness: 0.2 },
     };
@@ -254,35 +206,18 @@ function renderGraph() {
 
   const options = {
     physics: {
-      barnesHut: {
-        gravitationalConstant: -4000,
-        centralGravity: 0.3,
-        springLength: 120,
-        springConstant: 0.04,
-        damping: 0.09,
-      },
+      barnesHut: { gravitationalConstant: -4000, centralGravity: 0.3, springLength: 120, springConstant: 0.04, damping: 0.09 },
       stabilization: { iterations: 150 },
     },
-    interaction: {
-      hover: true,
-      tooltipDelay: 200,
-      zoomView: true,
-      dragView: true,
-    },
-    layout: {
-      improvedLayout: graphData.entities.length < 100,
-    },
+    interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true },
+    layout: { improvedLayout: graphData.entities.length < 100 },
   };
 
   network = new vis.Network(container, { nodes, edges }, options);
 
-  // Click to show detail panel
   network.on('click', (params) => {
-    if (params.nodes.length > 0) {
-      showNodeDetail(params.nodes[0]);
-    } else {
-      nodeDetail.classList.add('hidden');
-    }
+    if (params.nodes.length > 0) showNodeDetail(params.nodes[0]);
+    else nodeDetail.classList.add('hidden');
   });
 }
 
@@ -291,29 +226,25 @@ function showNodeDetail(nodeId) {
   if (!entity) return;
 
   document.getElementById('detail-name').textContent = entity.name;
-
   const typeEl = document.getElementById('detail-type');
   typeEl.textContent = entity.type;
   typeEl.style.background = `${TYPE_COLORS[entity.type] || TYPE_COLORS.unknown}20`;
   typeEl.style.color = TYPE_COLORS[entity.type] || TYPE_COLORS.unknown;
+  document.getElementById('detail-desc').textContent = entity.description || 'No description.';
 
-  document.getElementById('detail-desc').textContent = entity.description || 'No description available.';
-
-  // Sources
   const sourcesDiv = document.getElementById('detail-sources');
   const sourceEntries = (entity.sources || []).map(s => {
     const doc = graphData.documents.find(d => d.id === s.documentId);
-    return `<div class="source-item">📄 ${escapeHtml(doc?.name || s.documentId)}${s.sourceText ? `: "${escapeHtml(s.sourceText.slice(0, 120))}"` : ''}</div>`;
+    return `<div class="source-item">📄 ${escapeHtml(doc?.name || s.documentId)}${s.sourceText ? `: "${escapeHtml(s.sourceText.slice(0, 100))}"` : ''}</div>`;
   }).join('');
   sourcesDiv.innerHTML = sourceEntries ? `<h4>Sources</h4>${sourceEntries}` : '';
 
-  // Relations
   const relsDiv = document.getElementById('detail-relations');
   const rels = graphData.relationships.filter(r => r.source === nodeId || r.target === nodeId);
   const relEntries = rels.map(r => {
-    const otherEntity = graphData.entities.find(e => e.id === (r.source === nodeId ? r.target : r.source));
+    const other = graphData.entities.find(e => e.id === (r.source === nodeId ? r.target : r.source));
     const dir = r.source === nodeId ? '→' : '←';
-    return `<div class="relation-item"><span class="rel-arrow">${dir}</span> <strong>${r.relation}</strong> ${escapeHtml(otherEntity?.name || 'unknown')}</div>`;
+    return `<div class="relation-item"><span class="rel-arrow">${dir}</span> <strong>${r.relation}</strong> ${escapeHtml(other?.name || 'unknown')}</div>`;
   }).join('');
   relsDiv.innerHTML = rels.length ? `<h4>Relationships (${rels.length})</h4>${relEntries}` : '';
 
@@ -325,35 +256,25 @@ closeDetail.addEventListener('click', () => nodeDetail.classList.add('hidden'));
 // ─── Chat / Q&A ────────────────────────────────────────────────────────────────
 chatInput.addEventListener('input', () => {
   btnSend.disabled = !chatInput.value.trim();
-  // Auto-resize
   chatInput.style.height = 'auto';
-  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
 });
-
 chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendQuestion();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
 });
-
 btnSend.addEventListener('click', sendQuestion);
 
 async function sendQuestion() {
   const question = chatInput.value.trim();
   if (!question) return;
 
-  // Remove welcome message
   const welcome = chatMessages.querySelector('.chat-welcome');
   if (welcome) welcome.remove();
 
-  // Add user message
   addMessage('user', question);
   chatInput.value = '';
   chatInput.style.height = 'auto';
   btnSend.disabled = true;
-
-  // Add typing indicator
   const typingEl = addTypingIndicator();
 
   try {
@@ -363,17 +284,13 @@ async function sendQuestion() {
       body: JSON.stringify({ question }),
     });
     const data = await res.json();
-
     typingEl.remove();
-
     if (!res.ok) throw new Error(data.error || 'Query failed');
-
     addBotMessage(data);
   } catch (err) {
     typingEl.remove();
     addMessage('bot-error', 'Error: ' + err.message);
   }
-
   scrollChatBottom();
 }
 
@@ -388,20 +305,15 @@ function addMessage(type, text) {
 function addBotMessage(data) {
   const div = document.createElement('div');
   div.className = 'msg msg-bot';
-
   let html = '';
 
-  // Confidence badge
   const conf = data.confidence || 'medium';
   html += `<div class="msg-confidence confidence-${conf}">${conf}</div>`;
-
-  // Answer
   html += `<div class="msg-answer">${escapeHtml(data.answer)}</div>`;
 
-  // Reasoning path
   if (data.reasoning_path && data.reasoning_path.length > 0) {
     html += `<div class="msg-path">`;
-    data.reasoning_path.forEach((step, i) => {
+    data.reasoning_path.forEach(step => {
       if (step.startsWith('→') || step.startsWith('←')) {
         html += `<span class="path-arrow">${escapeHtml(step)}</span>`;
       } else {
@@ -411,27 +323,19 @@ function addBotMessage(data) {
     html += `</div>`;
   }
 
-  // Conflicts
   if (data.conflicts && data.conflicts.length > 0) {
-    html += `<div class="msg-conflicts">`;
-    html += `<div class="conflict-title">⚠️ Conflicting Information Detected</div>`;
+    html += `<div class="msg-conflicts"><div class="conflict-title">⚠️ Conflicting Information</div>`;
     data.conflicts.forEach(c => {
       html += `<div class="conflict-side"><strong>${escapeHtml(c.description || '')}</strong></div>`;
-      (c.sides || []).forEach(s => {
-        html += `<div class="conflict-side">• ${escapeHtml(s)}</div>`;
-      });
+      (c.sides || []).forEach(s => { html += `<div class="conflict-side">• ${escapeHtml(s)}</div>`; });
     });
     html += `</div>`;
   }
 
-  // Citations
   if (data.citations && data.citations.length > 0) {
     html += `<div class="msg-citations"><div class="msg-citations-title">📎 Sources</div>`;
     data.citations.forEach(c => {
-      html += `<div class="citation">
-        <span class="citation-fact">${escapeHtml(c.fact || '')}</span>
-        <span class="citation-source">${escapeHtml(c.source || '')}</span>
-      </div>`;
+      html += `<div class="citation"><span class="citation-fact">${escapeHtml(c.fact || '')}</span><span class="citation-source">${escapeHtml(c.source || '')}</span></div>`;
     });
     html += `</div>`;
   }
@@ -457,7 +361,6 @@ function scrollChatBottom() {
 // ─── Clear Graph ───────────────────────────────────────────────────────────────
 btnClear.addEventListener('click', async () => {
   if (!confirm('Clear all documents and the knowledge graph?')) return;
-
   try {
     await fetch('/api/clear', { method: 'POST' });
     graphData = { entities: [], relationships: [], documents: [] };
@@ -469,11 +372,11 @@ btnClear.addEventListener('click', async () => {
       <div class="chat-welcome">
         <div class="welcome-icon">🧠</div>
         <h3>Welcome to GraphMind</h3>
-        <p>Upload some documents, then ask questions. I'll answer using only the facts from your documents — with citations.</p>
+        <p>Upload documents or load the demo, then ask questions.</p>
         <div class="welcome-features">
-          <div class="feature"><span class="feature-icon">📊</span><span>Multi-hop reasoning across entities</span></div>
-          <div class="feature"><span class="feature-icon">⚖️</span><span>Conflicting fact detection</span></div>
-          <div class="feature"><span class="feature-icon">🚫</span><span>Refuses to fabricate answers</span></div>
+          <div class="feature"><span>📊</span> Multi-hop reasoning</div>
+          <div class="feature"><span>⚖️</span> Conflict detection</div>
+          <div class="feature"><span>🚫</span> Abstention guardrail</div>
         </div>
       </div>`;
     nodeDetail.classList.add('hidden');
@@ -482,104 +385,69 @@ btnClear.addEventListener('click', async () => {
   }
 });
 
-// ─── 1-Click Judge-Proof Demo Scenario ─────────────────────────────────────────
+// ─── 1-Click Demo ──────────────────────────────────────────────────────────────
 if (btnDemo) {
   btnDemo.addEventListener('click', async () => {
-    showLoading('Loading Judge-Proof Demo Scenario...');
+    showLoading('Loading Demo Scenario...');
     try {
       const res = await fetch('/api/demo', { method: 'POST' });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load demo scenario');
+      if (!res.ok) throw new Error(data.error || 'Demo load failed');
 
       graphData = data.graph;
       docItems.innerHTML = '';
       docList.classList.remove('hidden');
 
       graphData.documents.forEach(d => {
-        const entityCount = graphData.entities.filter(e =>
-          e.sources?.some(s => s.documentId === d.id)
-        ).length;
-        addDocItem(d.name, entityCount);
+        const cnt = graphData.entities.filter(e => e.sources?.some(s => s.documentId === d.id)).length;
+        addDocChip(d.name, cnt);
       });
 
       updateStats();
       renderGraph();
 
-      // Clear welcome and add notification
       const welcome = chatMessages.querySelector('.chat-welcome');
       if (welcome) welcome.remove();
-
-      addMessage('bot-info', '⚡ 1-Click Demo Loaded! Click any Judge Preset above to test Multi-Hop, Conflict Detection, or Abstention.');
+      addMessage('bot-info', '⚡ Demo loaded! Click a preset above to test Multi-Hop, Conflict, or Abstention.');
       hideLoading();
     } catch (err) {
       hideLoading();
-      alert('Error loading demo: ' + err.message);
+      alert('Error: ' + err.message);
     }
   });
 }
 
-// ─── Export Graph as JSON ──────────────────────────────────────────────────────
+// ─── Export JSON ────────────────────────────────────────────────────────────────
 if (btnExportJson) {
   btnExportJson.addEventListener('click', () => {
-    if (!graphData.entities.length) {
-      alert('Knowledge graph is empty. Please upload documents or load the sample demo first.');
-      return;
-    }
-    const exportPayload = {
-      timestamp: new Date().toISOString(),
-      stats: {
-        documents: graphData.documents.length,
-        entities: graphData.entities.length,
-        relationships: graphData.relationships.length,
-      },
-      ...graphData
-    };
-    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `graphmind-export-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    if (!graphData.entities.length) { alert('Graph is empty.'); return; }
+    const blob = new Blob([JSON.stringify({ timestamp: new Date().toISOString(), ...graphData }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `graphmind-${Date.now()}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
   });
 }
 
-// ─── Save Graph Canvas Image (PNG) ─────────────────────────────────────────────
+// ─── Export PNG ─────────────────────────────────────────────────────────────────
 if (btnExportPng) {
   btnExportPng.addEventListener('click', () => {
-    if (!network || !graphData.entities.length) {
-      alert('No graph visualization active to export.');
-      return;
-    }
+    if (!network || !graphData.entities.length) { alert('No graph to export.'); return; }
     const canvas = document.querySelector('#graph-container canvas');
-    if (!canvas) {
-      alert('Canvas element not found.');
-      return;
-    }
-    try {
-      const dataUrl = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = `graphmind-topology-${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (err) {
-      alert('Failed to save image: ' + err.message);
-    }
+    if (!canvas) { alert('Canvas not found.'); return; }
+    const a = document.createElement('a'); a.href = canvas.toDataURL('image/png');
+    a.download = `graphmind-${Date.now()}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
   });
 }
 
-// ─── Preset Quick Prompts ──────────────────────────────────────────────────────
+// ─── Quick Presets ──────────────────────────────────────────────────────────────
 document.querySelectorAll('.prompt-pill').forEach(pill => {
   pill.addEventListener('click', () => {
     const query = pill.getAttribute('data-query');
     if (!query) return;
     chatInput.value = query;
     chatInput.style.height = 'auto';
-    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
     btnSend.disabled = false;
     sendQuestion();
   });
@@ -610,10 +478,8 @@ function lightenColor(hex, percent) {
     if (graphData.entities.length > 0) {
       renderGraph();
       graphData.documents.forEach(d => {
-        const entityCount = graphData.entities.filter(e =>
-          e.sources?.some(s => s.documentId === d.id)
-        ).length;
-        addDocItem(d.name, entityCount);
+        const cnt = graphData.entities.filter(e => e.sources?.some(s => s.documentId === d.id)).length;
+        addDocChip(d.name, cnt);
       });
     }
   } catch (err) {
