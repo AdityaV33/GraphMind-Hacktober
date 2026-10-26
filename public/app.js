@@ -4,8 +4,20 @@
 let graphData = { entities: [], relationships: [], documents: [] };
 let network = null;
 let activePulseNodes = [];
+let activePathEdges = [];
 let pulseAnimFrame = null;
 let pulseRadius = 0;
+let pulseTime = 0;
+
+function hexToRgba(hex, alpha = 1) {
+  if (!hex || typeof hex !== 'string') return `rgba(139, 92, 246, ${alpha})`;
+  if (hex.startsWith('rgb')) return hex;
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16) || 139;
+  const g = parseInt(clean.substring(2, 4), 16) || 92;
+  const b = parseInt(clean.substring(4, 6), 16) || 246;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 // ─── Entity Type Colors ────────────────────────────────────────────────────────
 const TYPE_COLORS = {
@@ -222,37 +234,114 @@ function renderGraph() {
   network = new vis.Network(container, { nodes, edges }, options);
   window.network = network;
 
-  // ─── Pulsing Sonar / Radar Halo Animation Hook ───
+  // ─── High-Aesthetic Entity-Colored Glow & Glowing Path Hook ───
   network.on('afterDrawing', (ctx) => {
-    if (!activePulseNodes || activePulseNodes.length === 0) return;
+    if ((!activePulseNodes || activePulseNodes.length === 0) && (!activePathEdges || activePathEdges.length === 0)) return;
     try {
-      const positions = network.getPositions(activePulseNodes);
+      const allNodeIds = Array.from(new Set([
+        ...(activePulseNodes || []),
+        ...(activePathEdges || []).flatMap(e => [e.source, e.target])
+      ]));
+      const positions = network.getPositions(allNodeIds);
       ctx.save();
+
+      // ─── 1. Draw Ethereal Glowing Path Beams & Traveling Photons ───
+      if (activePathEdges && activePathEdges.length > 0) {
+        for (const edge of activePathEdges) {
+          const fromPos = positions[edge.source];
+          const toPos = positions[edge.target];
+          if (!fromPos || !toPos) continue;
+
+          const fromEntity = graphData.entities.find(e => e.id === edge.source);
+          const toEntity = graphData.entities.find(e => e.id === edge.target);
+          const fromCol = TYPE_COLORS[fromEntity?.type] || '#8b5cf6';
+          const toCol = TYPE_COLORS[toEntity?.type] || '#8b5cf6';
+
+          // Linear gradient matching source entity to target entity colors
+          const grad = ctx.createLinearGradient(fromPos.x, fromPos.y, toPos.x, toPos.y);
+          grad.addColorStop(0, fromCol);
+          grad.addColorStop(1, toCol);
+
+          // Broad ambient glow beam
+          ctx.beginPath();
+          ctx.moveTo(fromPos.x, fromPos.y);
+          ctx.lineTo(toPos.x, toPos.y);
+          ctx.strokeStyle = grad;
+          const breathAlpha = 0.45 + (Math.sin(pulseTime * 4.5) * 0.15);
+          ctx.globalAlpha = Math.max(0.2, breathAlpha);
+          ctx.lineWidth = 7;
+          ctx.shadowColor = fromCol;
+          ctx.shadowBlur = 18;
+          ctx.stroke();
+
+          // Intense focused core beam
+          ctx.beginPath();
+          ctx.moveTo(fromPos.x, fromPos.y);
+          ctx.lineTo(toPos.x, toPos.y);
+          ctx.strokeStyle = '#ffffff';
+          ctx.globalAlpha = 0.82;
+          ctx.lineWidth = 2.2;
+          ctx.shadowColor = toCol;
+          ctx.shadowBlur = 10;
+          ctx.stroke();
+
+          // Animated traveling energy packet (photon pulse) along path
+          const seed = (edge.source.charCodeAt(0) || 1) * 0.13;
+          const progress = ((pulseTime * 1.15) + seed) % 1;
+          const px = fromPos.x + (toPos.x - fromPos.x) * progress;
+          const py = fromPos.y + (toPos.y - fromPos.y) * progress;
+
+          ctx.beginPath();
+          ctx.arc(px, py, 4.5, 0, 2 * Math.PI);
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = 1.0;
+          ctx.shadowColor = toCol;
+          ctx.shadowBlur = 14;
+          ctx.fill();
+        }
+      }
+
+      // ─── 2. Draw Aesthetic Entity-Colored Blooming Glows ───
       for (const id of activePulseNodes) {
         const pos = positions[id];
         if (!pos) continue;
-        const alpha = Math.max(0, 0.75 - (pulseRadius / 26));
 
-        // Primary outer pulsing ripple ring
+        const entity = graphData.entities.find(e => e.id === id);
+        const col = TYPE_COLORS[entity?.type] || '#8b5cf6';
+
+        // Outer soft radial bloom corona (falloff to transparent)
+        const outerRad = 24 + pulseRadius;
+        const radGrad = ctx.createRadialGradient(pos.x, pos.y, 8, pos.x, pos.y, outerRad + 10);
+        radGrad.addColorStop(0, hexToRgba(col, 0.45));
+        radGrad.addColorStop(0.5, hexToRgba(col, 0.22));
+        radGrad.addColorStop(1, hexToRgba(col, 0));
+
+        ctx.fillStyle = radGrad;
+        ctx.globalAlpha = 1.0;
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 18 + pulseRadius, 0, 2 * Math.PI, false);
-        ctx.strokeStyle = `rgba(168, 85, 247, ${alpha})`;
-        ctx.lineWidth = 3;
-        ctx.shadowColor = '#a855f7';
-        ctx.shadowBlur = 12;
+        ctx.arc(pos.x, pos.y, outerRad + 10, 0, 2 * Math.PI);
+        ctx.fill();
+
+        // Expanding luminous wave ring in entity color
+        const ringAlpha = Math.max(0, 0.85 - (pulseRadius / 25));
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 18 + (pulseRadius * 0.75), 0, 2 * Math.PI);
+        ctx.strokeStyle = hexToRgba(col, ringAlpha);
+        ctx.lineWidth = 2.8;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 16;
         ctx.stroke();
 
-        // Inner harmonic glow ring
-        const innerRadius = Math.max(0, pulseRadius - 8);
-        const innerAlpha = Math.max(0, 0.85 - (innerRadius / 20));
+        // Crisp high-contrast inner rim
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 14 + innerRadius, 0, 2 * Math.PI, false);
-        ctx.strokeStyle = `rgba(236, 72, 153, ${innerAlpha})`;
-        ctx.lineWidth = 2;
-        ctx.shadowColor = '#ec4899';
-        ctx.shadowBlur = 8;
+        ctx.arc(pos.x, pos.y, 16, 0, 2 * Math.PI);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.8;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 10;
         ctx.stroke();
       }
+
       ctx.restore();
     } catch (e) {
       // ignore transient render frame errors
@@ -371,8 +460,10 @@ function startPulseLoop() {
   if (pulseAnimFrame) cancelAnimationFrame(pulseAnimFrame);
   const startTime = Date.now();
   function pulseTick() {
-    if (!activePulseNodes || activePulseNodes.length === 0) return;
-    const elapsed = (Date.now() - startTime) % 1500;
+    if ((!activePulseNodes || activePulseNodes.length === 0) && (!activePathEdges || activePathEdges.length === 0)) return;
+    const now = Date.now();
+    pulseTime = (now - startTime) / 1000;
+    const elapsed = (now - startTime) % 1500;
     pulseRadius = (elapsed / 1500) * 22; // 0 to 22px expansion
     if (network) network.redraw();
     pulseAnimFrame = requestAnimationFrame(pulseTick);
@@ -382,6 +473,7 @@ function startPulseLoop() {
 
 function stopPulseLoop() {
   activePulseNodes = [];
+  activePathEdges = [];
   if (pulseAnimFrame) {
     cancelAnimationFrame(pulseAnimFrame);
     pulseAnimFrame = null;
@@ -393,6 +485,12 @@ function highlightGraphNodes(nodeIds) {
   if (!network || !nodeIds || !nodeIds.length) return;
   try {
     activePulseNodes = [...nodeIds];
+
+    // Collect all edges that connect nodes within the reasoning path
+    activePathEdges = (graphData.relationships || []).filter(r =>
+      nodeIds.includes(r.source) && nodeIds.includes(r.target)
+    );
+
     startPulseLoop();
 
     // ─── Step-by-Step Traversal Animation (Hops light up in sequence) ───
@@ -401,11 +499,11 @@ function highlightGraphNodes(nodeIds) {
         if (!network) return;
         const currentHop = nodeIds.slice(0, idx + 1);
         network.selectNodes(currentHop, true);
-      }, idx * 280);
+      }, idx * 260);
     });
 
     // ─── Smooth Camera Glide Framing the Entire Path ───
-    const fitDelay = nodeIds.length * 280 + 120;
+    const fitDelay = nodeIds.length * 260 + 120;
     setTimeout(() => {
       if (!network) return;
       network.selectNodes(nodeIds, true);
@@ -418,10 +516,10 @@ function highlightGraphNodes(nodeIds) {
       });
     }, fitDelay);
 
-    // Auto-dim pulse after 8.5 seconds
+    // Auto-dim pulse after 9.5 seconds
     setTimeout(() => {
       stopPulseLoop();
-    }, 8500);
+    }, 9500);
   } catch (err) {
     console.warn('Could not animate highlighted nodes:', err);
   }
@@ -449,11 +547,27 @@ function addBotMessage(data) {
     let nodeIndex = 0;
     data.reasoning_path.forEach(step => {
       if (step.startsWith('→') || step.startsWith('←')) {
-        const arrowDelay = (nodeIndex * 0.25).toFixed(2);
+        const arrowDelay = (nodeIndex * 0.22).toFixed(2);
         html += `<span class="path-arrow" style="animation-delay: ${arrowDelay}s">${escapeHtml(step)}</span>`;
       } else {
-        const delay = (nodeIndex * 0.25).toFixed(2);
-        html += `<span class="path-node path-node-animated" data-node-name="${escapeHtml(step)}" style="animation-delay: ${delay}s; cursor: pointer;" title="Click to focus">${escapeHtml(step)}</span>`;
+        const delay = (nodeIndex * 0.22).toFixed(2);
+        const nameClean = step.toLowerCase().trim();
+        const entity = (graphData && graphData.entities)
+          ? graphData.entities.find(e =>
+              e.name.toLowerCase() === nameClean ||
+              e.id === nameClean ||
+              e.name.toLowerCase().includes(nameClean) ||
+              nameClean.includes(e.name.toLowerCase())
+            )
+          : null;
+        const color = entity ? (TYPE_COLORS[entity.type] || '#8b5cf6') : '#8b5cf6';
+        const bgRgba = hexToRgba(color, 0.16);
+        const borderRgba = hexToRgba(color, 0.48);
+        const glowRgba = hexToRgba(color, 0.65);
+
+        html += `<span class="path-node path-node-animated" data-node-name="${escapeHtml(step)}"
+          style="animation-delay: ${delay}s; color: ${color}; background: ${bgRgba}; border-color: ${borderRgba}; --node-glow: ${glowRgba}; cursor: pointer;"
+          title="Click to focus in graph">${escapeHtml(step)}</span>`;
         nodeIndex++;
       }
     });
