@@ -33,9 +33,9 @@ loadEnv();
 // ─── Config ────────────────────────────────────────────────────────────────────
 const app = express();
 const PORT = process.env.PORT || 3000;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } }); // 25 MB max
 
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '15mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Gemini Setup (Dynamic reload on each request) ───────────────────────────
@@ -141,14 +141,22 @@ const knowledgeGraph = {
   },
 
   addRelationship(rel, documentId) {
-    this.relationships.push({
-      source: rel.source,
-      target: rel.target,
-      relation: rel.relation,
-      confidence: rel.confidence || 'medium',
-      sourceText: rel.sourceText || '',
-      documentId,
-    });
+    const isDup = this.relationships.some(r =>
+      r.source === rel.source &&
+      r.target === rel.target &&
+      r.relation === rel.relation &&
+      r.documentId === documentId
+    );
+    if (!isDup) {
+      this.relationships.push({
+        source: rel.source,
+        target: rel.target,
+        relation: rel.relation,
+        confidence: rel.confidence || 'medium',
+        sourceText: rel.sourceText || '',
+        documentId,
+      });
+    }
   },
 
   // Find entities by fuzzy name match
@@ -292,6 +300,36 @@ const knowledgeGraph = {
   }
 };
 
+// ─── Text Chunking for Long Documents ──────────────────────────────────────────
+function chunkText(text, maxChunkSize = 25000, overlap = 1500) {
+  if (text.length <= maxChunkSize) return [text];
+
+  const chunks = [];
+  let startIndex = 0;
+
+  while (startIndex < text.length) {
+    let endIndex = startIndex + maxChunkSize;
+    if (endIndex < text.length) {
+      const lastParagraph = text.lastIndexOf('\n\n', endIndex);
+      const lastSentence = text.lastIndexOf('. ', endIndex);
+      if (lastParagraph > startIndex + maxChunkSize * 0.6) {
+        endIndex = lastParagraph + 2;
+      } else if (lastSentence > startIndex + maxChunkSize * 0.6) {
+        endIndex = lastSentence + 2;
+      }
+    } else {
+      endIndex = text.length;
+    }
+
+    const chunk = text.slice(startIndex, endIndex).trim();
+    if (chunk) chunks.push(chunk);
+
+    if (endIndex >= text.length) break;
+    startIndex = Math.max(startIndex + 1, endIndex - overlap);
+  }
+  return chunks;
+}
+
 // ─── Extraction Prompt ─────────────────────────────────────────────────────────
 function buildExtractionPrompt(text, documentName) {
   return `You are an entity and relationship extractor. Analyze this document and extract ALL entities (people, teams, organizations, events, places, resources, concepts) and their relationships.
@@ -299,7 +337,7 @@ function buildExtractionPrompt(text, documentName) {
 DOCUMENT NAME: "${documentName}"
 DOCUMENT TEXT:
 """
-${text.slice(0, 8000)}
+${text.slice(0, 35000)}
 """
 
 Respond ONLY with valid JSON matching this exact schema (no markdown, no explanation):
@@ -445,32 +483,39 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     const docId = `doc_${Date.now()}`;
     knowledgeGraph.addDocument(docId, docName, text);
 
-    // Extract entities & relationships via Gemini
-    console.log(`📄 Extracting from "${docName}" (${text.length} chars)...`);
-    const prompt = buildExtractionPrompt(text, docName);
-    const response = await callGemini(prompt);
+    // Extract entities & relationships via Gemini (chunk-aware for long documents)
+    const chunks = chunkText(text, 25000, 1500);
+    const maxChunks = Math.min(chunks.length, 6); // Up to ~150,000 chars (~60 pages)
+    console.log(`📄 Ingesting "${docName}" (${text.length} chars in ${chunks.length} chunk${chunks.length > 1 ? 's' : ''})...`);
 
-    // Parse the JSON response (handle markdown fences)
-    let extracted;
-    try {
-      const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      extracted = JSON.parse(cleaned);
-    } catch (parseErr) {
-      console.error('Failed to parse Gemini response:', response.slice(0, 500));
-      return res.status(500).json({ error: 'Failed to parse extraction results', raw: response.slice(0, 200) });
-    }
+    let entityCount = 0;
+    let relCount = 0;
 
-    // Add to knowledge graph
-    let entityCount = 0, relCount = 0;
-    for (const entity of (extracted.entities || [])) {
-      knowledgeGraph.addEntity(entity, docId);
-      entityCount++;
-    }
-    for (const rel of (extracted.relationships || [])) {
-      // Validate endpoints exist
-      if (knowledgeGraph.entities.has(rel.source) && knowledgeGraph.entities.has(rel.target)) {
-        knowledgeGraph.addRelationship(rel, docId);
-        relCount++;
+    for (let i = 0; i < maxChunks; i++) {
+      const chunk = chunks[i];
+      const chunkLabel = chunks.length > 1 ? `${docName} (Part ${i + 1}/${chunks.length})` : docName;
+      if (chunks.length > 1) {
+        console.log(`🔍 Extracting chunk ${i + 1}/${maxChunks} (${chunk.length} chars)...`);
+      }
+
+      const prompt = buildExtractionPrompt(chunk, chunkLabel);
+      try {
+        const response = await callGemini(prompt);
+        const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const extracted = JSON.parse(cleaned);
+
+        for (const entity of (extracted.entities || [])) {
+          knowledgeGraph.addEntity(entity, docId);
+          entityCount++;
+        }
+        for (const rel of (extracted.relationships || [])) {
+          if (knowledgeGraph.entities.has(rel.source) && knowledgeGraph.entities.has(rel.target)) {
+            knowledgeGraph.addRelationship(rel, docId);
+            relCount++;
+          }
+        }
+      } catch (chunkErr) {
+        console.error(`Extraction failed on chunk ${i + 1}:`, chunkErr.message);
       }
     }
 
