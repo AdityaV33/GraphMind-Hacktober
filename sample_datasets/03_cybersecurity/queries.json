@@ -1,0 +1,21 @@
+[
+  {
+    "type": "multi-hop",
+    "label": "Multi-Hop Traversal",
+    "question": "Which specific database system is housed in the datacenter where Bastion Gateway 04 routes ingress traffic?",
+    "expected_reasoning_path": "Bastion Gateway 04 → Frankfurt Datacenter → PostgreSQL Core Ledger",
+    "expected_answer": "PostgreSQL Core Ledger"
+  },
+  {
+    "type": "conflict",
+    "label": "Contradiction Detection",
+    "question": "What was the initial penetration vector and compromised gateway during the incident across the reports?",
+    "expected_conflict": "Bastion Gateway 04 / credential stuffing (Incident Report) vs API Gateway 09 / SSRF exploit (SIEM Forensics)"
+  },
+  {
+    "type": "abstention",
+    "label": "Hallucination Abstention",
+    "question": "What was the total financial ransom demanded in Bitcoin by the threat actors?",
+    "expected_response": "Declines / abstains because ransom demands or Bitcoin payments are not mentioned in the reports."
+  }
+]

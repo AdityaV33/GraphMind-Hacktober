@@ -1,0 +1,21 @@
+[
+  {
+    "type": "multi-hop",
+    "label": "Multi-Hop Traversal",
+    "question": "Which city and country is home to the medical facility where the trial for compound NX-109 was initiated under Dr. Miriam Chen?",
+    "expected_reasoning_path": "Compound NX-109 → Dr. Miriam Chen → Charité University Hospital → Berlin, Germany",
+    "expected_answer": "Berlin, Germany"
+  },
+  {
+    "type": "conflict",
+    "label": "Contradiction Detection",
+    "question": "What is the approved daily maintenance dosage for Compound NX-109 across the trial documents?",
+    "expected_conflict": "50 mg daily (FDA Protocol) vs 25 mg daily (Safety Monitoring Board Report)"
+  },
+  {
+    "type": "abstention",
+    "label": "Hallucination Abstention",
+    "question": "What is the expected pharmacy retail price per bottle of compound NX-109?",
+    "expected_response": "Declines / abstains because commercial pricing information is not present in the trial documents."
+  }
+]
