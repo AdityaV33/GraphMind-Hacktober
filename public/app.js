@@ -255,7 +255,7 @@ function renderGraph() {
       const positions = network.getPositions(allNodeIds);
       ctx.save();
 
-      // ─── 1. Glowing Pulsing Path Edges & Flowing Energy Pulses (Entity Colors, NO White) ───
+      // ─── 1. Glowing Pulsing Path Edges Following Exact Vis.js Curves ───
       if (activePathEdges && activePathEdges.length > 0) {
         for (const edge of activePathEdges) {
           const fromPos = positions[edge.source];
@@ -267,16 +267,38 @@ function renderGraph() {
           const fromCol = TYPE_COLORS[fromEntity?.type] || '#8b5cf6';
           const toCol = TYPE_COLORS[toEntity?.type] || '#8b5cf6';
 
+          // Look up Vis.js internal edge instance to get exact curve coordinates
+          let visEdge = (network && network.body && network.body.edges) ? network.body.edges[edge.id] : null;
+          if (!visEdge && network && network.body && network.body.edges) {
+            for (const k in network.body.edges) {
+              const eObj = network.body.edges[k];
+              if ((eObj.fromId === edge.source && eObj.toId === edge.target) ||
+                  (eObj.fromId === edge.target && eObj.toId === edge.source)) {
+                visEdge = eObj;
+                break;
+              }
+            }
+          }
+
+          const edgeType = visEdge ? visEdge.edgeType : null;
+          const fromPt = (edgeType && edgeType.fromPoint) ? edgeType.fromPoint : fromPos;
+          const toPt = (edgeType && edgeType.toPoint) ? edgeType.toPoint : toPos;
+          const via = edgeType ? (edgeType.via || (typeof edgeType._getViaCoordinates === 'function' ? edgeType._getViaCoordinates() : null)) : null;
+
           // Gradient beam along path
-          const grad = ctx.createLinearGradient(fromPos.x, fromPos.y, toPos.x, toPos.y);
+          const grad = ctx.createLinearGradient(fromPt.x, fromPt.y, toPt.x, toPt.y);
           grad.addColorStop(0, fromCol);
           grad.addColorStop(1, toCol);
 
-          // Pulsing ambient glow beam
+          // Pulsing ambient glow beam along exact curve
           const beamAlpha = 0.5 + (Math.sin(pulseTime * 4) * 0.2);
           ctx.beginPath();
-          ctx.moveTo(fromPos.x, fromPos.y);
-          ctx.lineTo(toPos.x, toPos.y);
+          ctx.moveTo(fromPt.x, fromPt.y);
+          if (via && typeof via.x === 'number') {
+            ctx.quadraticCurveTo(via.x, via.y, toPt.x, toPt.y);
+          } else {
+            ctx.lineTo(toPt.x, toPt.y);
+          }
           ctx.strokeStyle = grad;
           ctx.globalAlpha = Math.max(0.25, beamAlpha);
           ctx.lineWidth = 3.5;
@@ -284,11 +306,18 @@ function renderGraph() {
           ctx.shadowBlur = 12;
           ctx.stroke();
 
-          // Flowing colored energy packet in target entity color
+          // Flowing colored energy packet in target entity color along exact curve
           const seed = (edge.source.charCodeAt(0) || 1) * 0.15;
           const progress = ((pulseTime * 1.2) + seed) % 1;
-          const px = fromPos.x + (toPos.x - fromPos.x) * progress;
-          const py = fromPos.y + (toPos.y - fromPos.y) * progress;
+          let px, py;
+          if (via && typeof via.x === 'number') {
+            const mt = 1 - progress;
+            px = mt * mt * fromPt.x + 2 * mt * progress * via.x + progress * progress * toPt.x;
+            py = mt * mt * fromPt.y + 2 * mt * progress * via.y + progress * progress * toPt.y;
+          } else {
+            px = fromPt.x + (toPt.x - fromPt.x) * progress;
+            py = fromPt.y + (toPt.y - fromPt.y) * progress;
+          }
 
           ctx.beginPath();
           ctx.arc(px, py, 4, 0, 2 * Math.PI);
@@ -491,7 +520,10 @@ function highlightGraphNodes(nodeIds) {
     activePulseNodes = [...nodeIds];
 
     // Collect all edges that connect nodes within the reasoning path
-    activePathEdges = (graphData.relationships || []).filter(r =>
+    activePathEdges = (graphData.relationships || []).map((r, i) => ({
+      ...r,
+      id: r.id || `edge_${i}`
+    })).filter(r =>
       nodeIds.includes(r.source) && nodeIds.includes(r.target)
     );
 
