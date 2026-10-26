@@ -183,21 +183,31 @@ function renderGraph() {
   }
 
   // Nodes
-  const nodes = new vis.DataSet(graphData.entities.map(e => ({
-    id: e.id,
-    label: e.name,
-    color: {
-      background: TYPE_COLORS[e.type] || TYPE_COLORS.unknown,
-      border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown,
-      highlight: { background: '#fff', border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown },
-      hover: { background: lightenColor(TYPE_COLORS[e.type] || TYPE_COLORS.unknown, 30), border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown },
-    },
-    shape: TYPE_SHAPES[e.type] || 'dot',
-    size: 16 + Math.min(e.sources?.length || 0, 5) * 3,
-    font: { color: '#e8e8f0', size: 11, face: 'Inter, sans-serif', strokeWidth: 3, strokeColor: '#0c0c12' },
-    borderWidth: 2,
-    shadow: { enabled: true, color: TYPE_COLORS[e.type] || TYPE_COLORS.unknown, size: 6, x: 0, y: 0 },
-  })));
+  const nodes = new vis.DataSet(graphData.entities.map(e => {
+    const col = TYPE_COLORS[e.type] || TYPE_COLORS.unknown;
+    return {
+      id: e.id,
+      label: e.name,
+      color: {
+        background: col,
+        border: col,
+        highlight: {
+          background: col,
+          border: lightenColor(col, 40),
+        },
+        hover: {
+          background: lightenColor(col, 20),
+          border: lightenColor(col, 40),
+        },
+      },
+      shape: TYPE_SHAPES[e.type] || 'dot',
+      size: 16 + Math.min(e.sources?.length || 0, 5) * 3,
+      font: { color: '#e8e8f0', size: 11, face: 'Inter, sans-serif', strokeWidth: 3, strokeColor: '#0c0c12' },
+      borderWidth: 2,
+      borderWidthSelected: 3,
+      shadow: { enabled: true, color: col, size: 8, x: 0, y: 0 },
+    };
+  }));
 
   // Edges (amber dashed for conflicts)
   const edges = new vis.DataSet(graphData.relationships.map((r, i) => {
@@ -234,7 +244,7 @@ function renderGraph() {
   network = new vis.Network(container, { nodes, edges }, options);
   window.network = network;
 
-  // ─── High-Aesthetic Entity-Colored Glow & Glowing Path Hook ───
+  // ─── Subtle Entity-Colored Border Glow & Path Accent ───
   network.on('afterDrawing', (ctx) => {
     if ((!activePulseNodes || activePulseNodes.length === 0) && (!activePathEdges || activePathEdges.length === 0)) return;
     try {
@@ -245,7 +255,7 @@ function renderGraph() {
       const positions = network.getPositions(allNodeIds);
       ctx.save();
 
-      // ─── 1. Draw Ethereal Glowing Path Beams & Traveling Photons ───
+      // ─── 1. Clean, subtle glowing path edges (NO white lines, NO white dots) ───
       if (activePathEdges && activePathEdges.length > 0) {
         for (const edge of activePathEdges) {
           const fromPos = positions[edge.source];
@@ -257,51 +267,23 @@ function renderGraph() {
           const fromCol = TYPE_COLORS[fromEntity?.type] || '#8b5cf6';
           const toCol = TYPE_COLORS[toEntity?.type] || '#8b5cf6';
 
-          // Linear gradient matching source entity to target entity colors
+          // Smooth subtle gradient line along path in entity colors
           const grad = ctx.createLinearGradient(fromPos.x, fromPos.y, toPos.x, toPos.y);
           grad.addColorStop(0, fromCol);
           grad.addColorStop(1, toCol);
 
-          // Broad ambient glow beam
           ctx.beginPath();
           ctx.moveTo(fromPos.x, fromPos.y);
           ctx.lineTo(toPos.x, toPos.y);
           ctx.strokeStyle = grad;
-          const breathAlpha = 0.45 + (Math.sin(pulseTime * 4.5) * 0.15);
-          ctx.globalAlpha = Math.max(0.2, breathAlpha);
-          ctx.lineWidth = 7;
+          ctx.lineWidth = 2.5;
           ctx.shadowColor = fromCol;
-          ctx.shadowBlur = 18;
+          ctx.shadowBlur = 8;
           ctx.stroke();
-
-          // Intense focused core beam
-          ctx.beginPath();
-          ctx.moveTo(fromPos.x, fromPos.y);
-          ctx.lineTo(toPos.x, toPos.y);
-          ctx.strokeStyle = '#ffffff';
-          ctx.globalAlpha = 0.82;
-          ctx.lineWidth = 2.2;
-          ctx.shadowColor = toCol;
-          ctx.shadowBlur = 10;
-          ctx.stroke();
-
-          // Animated traveling energy packet (photon pulse) along path
-          const seed = (edge.source.charCodeAt(0) || 1) * 0.13;
-          const progress = ((pulseTime * 1.15) + seed) % 1;
-          const px = fromPos.x + (toPos.x - fromPos.x) * progress;
-          const py = fromPos.y + (toPos.y - fromPos.y) * progress;
-
-          ctx.beginPath();
-          ctx.arc(px, py, 4.5, 0, 2 * Math.PI);
-          ctx.fillStyle = '#ffffff';
-          ctx.globalAlpha = 1.0;
-          ctx.shadowColor = toCol;
-          ctx.shadowBlur = 14;
-          ctx.fill();
         }
       }
 
-      // ─── 2. Draw Aesthetic Entity-Colored Blooming Glows ───
+      // ─── 2. Subtle, elegant border glow around entities (matching entity color, NO white) ───
       for (const id of activePulseNodes) {
         const pos = positions[id];
         if (!pos) continue;
@@ -309,34 +291,15 @@ function renderGraph() {
         const entity = graphData.entities.find(e => e.id === id);
         const col = TYPE_COLORS[entity?.type] || '#8b5cf6';
 
-        // Outer soft radial bloom corona (falloff to transparent)
-        const outerRad = 24 + pulseRadius;
-        const radGrad = ctx.createRadialGradient(pos.x, pos.y, 8, pos.x, pos.y, outerRad + 10);
-        radGrad.addColorStop(0, hexToRgba(col, 0.45));
-        radGrad.addColorStop(0.5, hexToRgba(col, 0.22));
-        radGrad.addColorStop(1, hexToRgba(col, 0));
+        // Gentle breathing pulse (+/- 2px)
+        const breathe = Math.sin(pulseTime * 3) * 2;
+        const baseRadius = 18 + Math.min(entity?.sources?.length || 0, 5) * 2;
 
-        ctx.fillStyle = radGrad;
-        ctx.globalAlpha = 1.0;
+        // Subtle soft border glow ring matching entity's exact color
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, outerRad + 10, 0, 2 * Math.PI);
-        ctx.fill();
-
-        // Expanding luminous wave ring in entity color
-        const ringAlpha = Math.max(0, 0.85 - (pulseRadius / 25));
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 18 + (pulseRadius * 0.75), 0, 2 * Math.PI);
-        ctx.strokeStyle = hexToRgba(col, ringAlpha);
-        ctx.lineWidth = 2.8;
-        ctx.shadowColor = col;
-        ctx.shadowBlur = 16;
-        ctx.stroke();
-
-        // Crisp high-contrast inner rim
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 16, 0, 2 * Math.PI);
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.8;
+        ctx.arc(pos.x, pos.y, baseRadius + breathe, 0, 2 * Math.PI);
+        ctx.strokeStyle = hexToRgba(col, 0.45 + (Math.sin(pulseTime * 3) * 0.15));
+        ctx.lineWidth = 2;
         ctx.shadowColor = col;
         ctx.shadowBlur = 10;
         ctx.stroke();
