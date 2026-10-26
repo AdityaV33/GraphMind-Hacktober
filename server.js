@@ -388,9 +388,23 @@ Respond with valid JSON:
 
 // ─── Parse PDF ─────────────────────────────────────────────────────────────────
 async function parsePDF(buffer) {
-  const pdfParse = require('pdf-parse');
-  const data = await pdfParse(buffer);
-  return data.text;
+  const pdfModule = require('pdf-parse');
+  if (typeof pdfModule === 'function') {
+    const data = await pdfModule(buffer);
+    return data.text;
+  }
+  if (pdfModule && pdfModule.PDFParse) {
+    const parser = new pdfModule.PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText();
+      return result.text;
+    } finally {
+      if (typeof parser.destroy === 'function') {
+        try { await parser.destroy(); } catch (_) {}
+      }
+    }
+  }
+  throw new Error('Unable to parse PDF with current pdf-parse version');
 }
 
 // ─── API Routes ────────────────────────────────────────────────────────────────

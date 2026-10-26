@@ -1,10 +1,12 @@
-// ─── GraphMind — Client-Side Application ──────────────────────────────────────
+// ─── GraphMind — Knowledge Graph Workspace & Adaptive AI Copilot ──────────────
 
 // ─── State ─────────────────────────────────────────────────────────────────────
-let graphData = { entities: [], relationships: [], documents: [] };
+let graphData = { entities: [], relationships: [], documents: [], conflicts: [] };
 let network = null;
+let currentLayout = 'exploration'; // 'exploration' | 'chat-expanded'
+let selectedNodeId = null;
 
-// ─── Entity Type Colors ────────────────────────────────────────────────────────
+// ─── Entity Type Colors & Shapes ───────────────────────────────────────────────
 const TYPE_COLORS = {
   person: '#8b5cf6',
   organization: '#3b82f6',
@@ -28,6 +30,7 @@ const TYPE_SHAPES = {
 };
 
 // ─── DOM Elements ──────────────────────────────────────────────────────────────
+const workspace = document.getElementById('app-workspace');
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const pasteInput = document.getElementById('paste-input');
@@ -46,36 +49,337 @@ const loadingOverlay = document.getElementById('loading-overlay');
 const loadingText = document.getElementById('loading-text');
 const nodeDetail = document.getElementById('node-detail');
 const closeDetail = document.getElementById('close-detail');
+const btnAskAboutNode = document.getElementById('btn-ask-about-node');
+
+// Layout Controls
+const btnOpenChat = document.getElementById('btn-open-chat');
+const launcherBarTrigger = document.getElementById('launcher-bar-trigger');
+const btnCollapseChat = document.getElementById('btn-collapse-chat');
+const btnToggleFloating = document.getElementById('btn-toggle-floating');
+const floatingPanel = document.getElementById('floating-analytics-panel');
+const floatingBody = document.getElementById('floating-analytics-body');
+const dockedGrid = document.getElementById('docked-analytics-grid');
 
 // ─── Loading Helpers ───────────────────────────────────────────────────────────
 function showLoading(text = 'Processing...') {
-  loadingText.textContent = text;
-  loadingOverlay.classList.remove('hidden');
+  if (loadingText) loadingText.textContent = text;
+  if (loadingOverlay) loadingOverlay.classList.remove('hidden');
 }
 function hideLoading() {
-  loadingOverlay.classList.add('hidden');
+  if (loadingOverlay) loadingOverlay.classList.add('hidden');
 }
 
-// ─── Stats ─────────────────────────────────────────────────────────────────────
+// ─── Layout Switching (Phase 4 & 5) ───────────────────────────────────────────
+function setLayout(mode) {
+  currentLayout = mode;
+  if (mode === 'chat-expanded') {
+    workspace.classList.remove('layout-exploration');
+    workspace.classList.add('layout-chat-expanded');
+  } else {
+    workspace.classList.remove('layout-chat-expanded');
+    workspace.classList.add('layout-exploration');
+  }
+
+  // Allow CSS transition to settle, then fit vis.js canvas seamlessly
+  setTimeout(() => {
+    if (network) {
+      network.setSize('100%', '100%');
+      network.fit({ animation: { duration: 250, easingFunction: 'easeInOutQuad' } });
+    }
+  }, 260);
+
+  updateAnalytics();
+}
+
+if (launcherBarTrigger) {
+  launcherBarTrigger.addEventListener('click', () => {
+    setLayout('chat-expanded');
+    chatInput.focus();
+  });
+}
+if (btnOpenChat) {
+  btnOpenChat.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setLayout('chat-expanded');
+    chatInput.focus();
+  });
+}
+if (btnCollapseChat) {
+  btnCollapseChat.addEventListener('click', () => {
+    setLayout('exploration');
+  });
+}
+
+// Minimize / Expand Floating Analytics in Exploration View
+if (btnToggleFloating && floatingPanel) {
+  btnToggleFloating.addEventListener('click', () => {
+    const isMinimized = floatingPanel.classList.toggle('minimized');
+    btnToggleFloating.textContent = isMinimized ? '+' : '−';
+  });
+}
+
+// ─── Stats Bar ─────────────────────────────────────────────────────────────────
 function updateStats() {
-  document.querySelector('#stat-docs .stat-num').textContent = graphData.documents.length;
-  document.querySelector('#stat-entities .stat-num').textContent = graphData.entities.length;
-  document.querySelector('#stat-relations .stat-num').textContent = graphData.relationships.length;
+  const docEl = document.querySelector('#stat-docs .stat-num');
+  const entEl = document.querySelector('#stat-entities .stat-num');
+  const relEl = document.querySelector('#stat-relations .stat-num');
+  if (docEl) docEl.textContent = graphData.documents.length;
+  if (entEl) entEl.textContent = graphData.entities.length;
+  if (relEl) relEl.textContent = graphData.relationships.length;
+}
+
+// ─── Analytics Engine Integration (Phase 3) ───────────────────────────────────
+function updateAnalytics() {
+  if (typeof GraphAnalytics === 'undefined') return;
+
+  const analytics = GraphAnalytics.deriveGraphAnalytics(graphData, selectedNodeId);
+  renderFloatingAnalytics(analytics);
+  renderDockedAnalytics(analytics);
+}
+
+// Render Floating Panel (Exploration Mode, Upper-Right)
+function renderFloatingAnalytics(analytics) {
+  if (!floatingBody) return;
+
+  if (analytics.isEmpty) {
+    floatingBody.innerHTML = `
+      <div style="text-align:center; padding:12px 6px; color:var(--text-3); font-size:11px;">
+        <span style="font-size:22px; display:block; margin-bottom:4px; opacity:0.4;">📊</span>
+        Upload docs or load demo to populate live graph intelligence.
+      </div>`;
+    return;
+  }
+
+  const densityPct = Math.round(analytics.density * 1000) / 10;
+  let html = '';
+
+  // KPI Grid
+  html += `
+    <div class="floating-kpis">
+      <div class="kpi-card-mini">
+        <div class="kpi-label-mini">Density</div>
+        <div class="kpi-val-mini">${densityPct}%</div>
+        <div class="kpi-sub-mini">${analytics.core.relationshipsCount} edges / max</div>
+      </div>
+      <div class="kpi-card-mini">
+        <div class="kpi-label-mini">Avg Degree</div>
+        <div class="kpi-val-mini">${analytics.degree.avgDegree}</div>
+        <div class="kpi-sub-mini">Max: ${analytics.degree.maxDegree} conn</div>
+      </div>
+      <div class="kpi-card-mini">
+        <div class="kpi-label-mini">Components</div>
+        <div class="kpi-val-mini">${analytics.components.count}</div>
+        <div class="kpi-sub-mini">${analytics.degree.isolatedCount} isolated</div>
+      </div>
+      <div class="kpi-card-mini">
+        <div class="kpi-label-mini">Quality & Trust</div>
+        <div class="kpi-val-mini" style="color:${analytics.quality.conflictsCount > 0 ? 'var(--gold)' : 'var(--emerald)'}">
+          ${analytics.quality.conflictsCount > 0 ? `⚠️ ${analytics.quality.conflictsCount}` : '✓ Clean'}
+        </div>
+        <div class="kpi-sub-mini">${analytics.quality.sourceCoveragePercent}% cited</div>
+      </div>
+    </div>`;
+
+  // Entity Type Distribution (Top 4)
+  if (analytics.entityDistribution.breakdown.length > 0) {
+    html += `
+      <div>
+        <div class="section-title-mini">Entity Taxonomy</div>
+        <div class="type-bars-container">`;
+    analytics.entityDistribution.breakdown.slice(0, 4).forEach(item => {
+      const color = TYPE_COLORS[item.type] || TYPE_COLORS.unknown;
+      html += `
+        <div class="type-bar-row">
+          <span class="type-bar-name">${escapeHtml(item.type)}</span>
+          <div class="type-bar-track">
+            <div class="type-bar-fill" style="width:${item.percentage}%; background:${color}"></div>
+          </div>
+          <span class="type-bar-count">${item.count}</span>
+        </div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  // Key Connected Hubs (Top 3)
+  if (analytics.degree.topHubs.length > 0) {
+    html += `
+      <div>
+        <div class="section-title-mini">Top Hub Entities</div>
+        <div class="hub-list-mini">`;
+    analytics.degree.topHubs.slice(0, 3).forEach(hub => {
+      html += `
+        <div class="hub-item-mini" onclick="focusGraphNode('${escapeHtml(hub.id)}')">
+          <span class="hub-name-mini">${escapeHtml(hub.name)}</span>
+          <span class="hub-degree-pill">${hub.degree} links</span>
+        </div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  // Contextual Selected Entity
+  if (analytics.contextual) {
+    const ctx = analytics.contextual;
+    html += `
+      <div class="floating-selected-box">
+        <div class="sel-title">🎯 ${escapeHtml(ctx.name)}</div>
+        <div class="sel-meta">${ctx.type} · ${ctx.degree} connections (${ctx.sources.length} sources)</div>
+        <button onclick="askAboutEntity('${escapeHtml(ctx.name)}')">💬 Ask AI About Entity</button>
+      </div>`;
+  }
+
+  floatingBody.innerHTML = html;
+}
+
+// Render Docked Analytics Section (Expanded Mode, Beneath Graph)
+function renderDockedAnalytics(analytics) {
+  if (!dockedGrid) return;
+
+  if (analytics.isEmpty) {
+    dockedGrid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 28px; color: var(--text-3); font-size: 12px;">
+        <span style="font-size: 32px; display: block; margin-bottom: 8px; opacity: 0.4;">📊</span>
+        No graph data loaded. Upload documents or click <strong>⚡ Load Demo</strong> to view live structural analytics.
+      </div>`;
+    return;
+  }
+
+  const densityPct = Math.round(analytics.density * 1000) / 10;
+  let html = '';
+
+  // Card 1: Graph Structure & Topology
+  html += `
+    <div class="docked-card">
+      <div class="docked-card-title">
+        <span>Topology & Structure</span>
+        <span class="badge">${analytics.core.entitiesCount}V / ${analytics.core.relationshipsCount}E</span>
+      </div>
+      <div class="kpi-row-duo">
+        <div class="kpi-cell">
+          <div class="kpi-cell-val" style="color:var(--violet)">${densityPct}%</div>
+          <div class="kpi-cell-label">Graph Density</div>
+        </div>
+        <div class="kpi-cell">
+          <div class="kpi-cell-val" style="color:var(--cyan)">${analytics.degree.avgDegree}</div>
+          <div class="kpi-cell-label">Average Degree</div>
+        </div>
+      </div>
+      <div class="kpi-row-duo" style="margin-bottom:0">
+        <div class="kpi-cell">
+          <div class="kpi-cell-val">${analytics.components.count}</div>
+          <div class="kpi-cell-label">Components (max size ${analytics.components.largestComponentSize})</div>
+        </div>
+        <div class="kpi-cell">
+          <div class="kpi-cell-val">${analytics.degree.isolatedCount}</div>
+          <div class="kpi-cell-label">Isolated Nodes</div>
+        </div>
+      </div>
+    </div>`;
+
+  // Card 2: Entity Taxonomy Distribution
+  html += `
+    <div class="docked-card">
+      <div class="docked-card-title">
+        <span>Entity Taxonomy</span>
+        <span class="badge">${analytics.entityDistribution.uniqueTypesCount} Types</span>
+      </div>
+      <div class="type-bars-container" style="gap:7px;">`;
+  analytics.entityDistribution.breakdown.slice(0, 5).forEach(item => {
+    const color = TYPE_COLORS[item.type] || TYPE_COLORS.unknown;
+    html += `
+      <div class="type-bar-row">
+        <span class="type-bar-name" title="${item.type}">${escapeHtml(item.type)}</span>
+        <div class="type-bar-track">
+          <div class="type-bar-fill" style="width:${item.percentage}%; background:${color}"></div>
+        </div>
+        <span class="type-bar-count">${item.count} (${item.percentage}%)</span>
+      </div>`;
+  });
+  html += `</div></div>`;
+
+  // Card 3: Key Hub Entities
+  html += `
+    <div class="docked-card">
+      <div class="docked-card-title">
+        <span>Hub Entities & Bridges</span>
+        <span class="badge">Top Connected</span>
+      </div>
+      <div class="hub-list-mini" style="gap:5px;">`;
+  analytics.degree.topHubs.slice(0, 4).forEach(hub => {
+    html += `
+      <div class="hub-item-mini" onclick="focusGraphNode('${escapeHtml(hub.id)}')">
+        <span class="hub-name-mini">${escapeHtml(hub.name)} <span style="font-size:9px; color:var(--text-3)">(${hub.type})</span></span>
+        <span class="hub-degree-pill">${hub.degree} links</span>
+      </div>`;
+  });
+  html += `</div></div>`;
+
+  // Card 4: Knowledge Quality & Evidence
+  const conf = analytics.quality;
+  html += `
+    <div class="docked-card">
+      <div class="docked-card-title">
+        <span>Knowledge Quality & Trust</span>
+        <span class="badge" style="color:${conf.conflictsCount > 0 ? 'var(--gold)' : 'var(--emerald)'}">
+          ${conf.conflictsCount > 0 ? '⚠️ Inconsistencies' : '✓ Verified'}
+        </span>
+      </div>
+      <div class="kpi-row-duo">
+        <div class="kpi-cell">
+          <div class="kpi-cell-val" style="color:${conf.conflictsCount > 0 ? 'var(--gold)' : 'var(--text-1)'}">
+            ${conf.conflictsCount}
+          </div>
+          <div class="kpi-cell-label">Conflicting Facts</div>
+        </div>
+        <div class="kpi-cell">
+          <div class="kpi-cell-val" style="color:var(--emerald)">${conf.sourceCoveragePercent}%</div>
+          <div class="kpi-cell-label">Source Citation Coverage</div>
+        </div>
+      </div>
+      <div style="font-size:10px; color:var(--text-3); margin-top:2px;">
+        Avg ${conf.avgSourcesPerEntity} sources/entity · High Conf: ${analytics.relationshipDistribution.confidenceBreakdown.high} · Med: ${analytics.relationshipDistribution.confidenceBreakdown.medium}
+      </div>
+    </div>`;
+
+  // Card 5 (Contextual Node Inspector in Docked Area)
+  if (analytics.contextual) {
+    const ctx = analytics.contextual;
+    html += `
+      <div class="docked-card" style="border-color:rgba(139,92,246,0.35); background:rgba(139,92,246,0.05); grid-column:1 / -1;">
+        <div class="docked-card-title">
+          <span style="color:#c4b5fd;">🎯 Active Entity Focus: ${escapeHtml(ctx.name)}</span>
+          <button class="btn-sm" style="padding:3px 10px; font-size:10px;" onclick="askAboutEntity('${escapeHtml(ctx.name)}')">Ask AI About ${escapeHtml(ctx.name)}</button>
+        </div>
+        <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:11px; color:var(--text-2);">
+          <div><strong>Type:</strong> ${ctx.type}</div>
+          <div><strong>Total Degree:</strong> ${ctx.degree} (${ctx.incomingCount} in / ${ctx.outgoingCount} out)</div>
+          <div><strong>Neighbors:</strong> ${ctx.neighbors.map(n => escapeHtml(n.name)).join(', ') || 'None'}</div>
+          <div><strong>Sources Cited:</strong> ${ctx.sources.length} document references</div>
+        </div>
+      </div>`;
+  }
+
+  dockedGrid.innerHTML = html;
 }
 
 // ─── File Upload ───────────────────────────────────────────────────────────────
-dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('drag-over'); });
-dropZone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  dropZone.classList.remove('drag-over');
-  if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
-});
-fileInput.addEventListener('change', () => {
-  if (fileInput.files.length) uploadFiles(fileInput.files);
-  fileInput.value = '';
-});
+if (dropZone) {
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('drag-over'); });
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+  });
+}
+
+if (fileInput) {
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) uploadFiles(fileInput.files);
+    fileInput.value = '';
+  });
+}
 
 async function uploadFiles(files) {
   for (const file of files) await uploadSingleFile(file);
@@ -93,6 +397,7 @@ async function uploadSingleFile(file) {
     addDocChip(data.documentName, data.extracted.entities);
     updateStats();
     renderGraph();
+    updateAnalytics();
     hideLoading();
   } catch (err) {
     hideLoading();
@@ -101,37 +406,43 @@ async function uploadSingleFile(file) {
 }
 
 // ─── Paste Text ────────────────────────────────────────────────────────────────
-pasteInput.addEventListener('input', () => {
-  btnPasteSubmit.disabled = !pasteInput.value.trim();
-});
+if (pasteInput) {
+  pasteInput.addEventListener('input', () => {
+    btnPasteSubmit.disabled = !pasteInput.value.trim();
+  });
+}
 
-btnPasteSubmit.addEventListener('click', async () => {
-  const text = pasteInput.value.trim();
-  if (!text) return;
-  showLoading('Extracting from pasted text...');
-  try {
-    const res = await fetch('/api/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, name: `Pasted Text ${graphData.documents.length + 1}` }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Upload failed');
-    graphData = data.graph;
-    addDocChip(data.documentName, data.extracted.entities);
-    updateStats();
-    renderGraph();
-    pasteInput.value = '';
-    btnPasteSubmit.disabled = true;
-    hideLoading();
-  } catch (err) {
-    hideLoading();
-    alert('Error: ' + err.message);
-  }
-});
+if (btnPasteSubmit) {
+  btnPasteSubmit.addEventListener('click', async () => {
+    const text = pasteInput.value.trim();
+    if (!text) return;
+    showLoading('Extracting from pasted text...');
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, name: `Pasted Text ${graphData.documents.length + 1}` }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      graphData = data.graph;
+      addDocChip(data.documentName, data.extracted.entities);
+      updateStats();
+      renderGraph();
+      updateAnalytics();
+      pasteInput.value = '';
+      btnPasteSubmit.disabled = true;
+      hideLoading();
+    } catch (err) {
+      hideLoading();
+      alert('Error: ' + err.message);
+    }
+  });
+}
 
 // ─── Document Chips ────────────────────────────────────────────────────────────
 function addDocChip(name, entityCount) {
+  if (!docList || !docItems) return;
   docList.classList.remove('hidden');
   const chip = document.createElement('span');
   chip.className = 'doc-chip';
@@ -142,29 +453,38 @@ function addDocChip(name, entityCount) {
 // ─── Graph Rendering ───────────────────────────────────────────────────────────
 function renderGraph() {
   const container = document.getElementById('graph-container');
+  if (!container) return;
   container.innerHTML = '';
 
   if (graphData.entities.length === 0) {
-    container.innerHTML = '<div class="graph-empty"><div class="empty-state"><span class="empty-icon">🔗</span><p>Upload documents or click <strong>⚡ Load Demo</strong></p><p class="empty-sub">Entities and relationships will appear here</p></div></div>';
+    container.innerHTML = `
+      <div class="graph-empty">
+        <div class="empty-state">
+          <span class="empty-icon">🔗</span>
+          <p>Upload documents or click <strong>⚡ Load Demo</strong></p>
+          <p class="empty-sub">Entities and relationships will render interactively</p>
+        </div>
+      </div>`;
     return;
   }
 
-  // Build legend
+  // Legend
   const legend = document.getElementById('graph-legend');
-  const typesUsed = new Set(graphData.entities.map(e => e.type));
-  legend.innerHTML = '';
-  for (const type of typesUsed) {
-    const color = TYPE_COLORS[type] || TYPE_COLORS.unknown;
-    legend.innerHTML += `<span class="legend-item"><span class="legend-dot" style="background:${color}"></span>${type}</span>`;
-  }
+  if (legend) {
+    const typesUsed = new Set(graphData.entities.map(e => e.type));
+    legend.innerHTML = '';
+    for (const type of typesUsed) {
+      const color = TYPE_COLORS[type] || TYPE_COLORS.unknown;
+      legend.innerHTML += `<span class="legend-item"><span class="legend-dot" style="background:${color}"></span>${type}</span>`;
+    }
 
-  // Conflict badge
-  const hasConflicts = graphData.relationships.some(r => r.isConflict);
-  if (hasConflicts) {
-    legend.innerHTML += `<span class="legend-item conflict-item"><span class="legend-line-conflict"></span>⚠️ Conflict</span>`;
-    if (conflictBadge) conflictBadge.classList.remove('hidden');
-  } else {
-    if (conflictBadge) conflictBadge.classList.add('hidden');
+    const hasConflicts = graphData.relationships.some(r => r.isConflict);
+    if (hasConflicts) {
+      legend.innerHTML += `<span class="legend-item conflict-item"><span class="legend-line-conflict"></span>⚠️ Conflict</span>`;
+      if (conflictBadge) conflictBadge.classList.remove('hidden');
+    } else {
+      if (conflictBadge) conflictBadge.classList.add('hidden');
+    }
   }
 
   // Nodes
@@ -174,17 +494,17 @@ function renderGraph() {
     color: {
       background: TYPE_COLORS[e.type] || TYPE_COLORS.unknown,
       border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown,
-      highlight: { background: '#fff', border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown },
-      hover: { background: lightenColor(TYPE_COLORS[e.type] || TYPE_COLORS.unknown, 30), border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown },
+      highlight: { background: '#ffffff', border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown },
+      hover: { background: lightenColor(TYPE_COLORS[e.type] || TYPE_COLORS.unknown, 25), border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown },
     },
     shape: TYPE_SHAPES[e.type] || 'dot',
     size: 16 + Math.min(e.sources?.length || 0, 5) * 3,
-    font: { color: '#e8e8f0', size: 11, face: 'Inter, sans-serif', strokeWidth: 3, strokeColor: '#0c0c12' },
+    font: { color: '#f3f4f8', size: 11, face: 'Inter, sans-serif', strokeWidth: 3, strokeColor: '#080a0f' },
     borderWidth: 2,
-    shadow: { enabled: true, color: TYPE_COLORS[e.type] || TYPE_COLORS.unknown, size: 6, x: 0, y: 0 },
+    shadow: { enabled: true, color: TYPE_COLORS[e.type] || TYPE_COLORS.unknown, size: 7, x: 0, y: 0 },
   })));
 
-  // Edges (amber dashed for conflicts)
+  // Edges
   const edges = new vis.DataSet(graphData.relationships.map((r, i) => {
     const isConflict = Boolean(r.isConflict);
     return {
@@ -198,7 +518,7 @@ function renderGraph() {
         highlight: '#8b5cf6', hover: '#8b5cf6',
       },
       dashes: isConflict ? [6, 4] : (r.confidence === 'low'),
-      font: { color: isConflict ? '#fbbf24' : '#9898b0', size: isConflict ? 10 : 9, face: 'Inter, sans-serif', strokeWidth: 2, strokeColor: '#0c0c12', align: 'top' },
+      font: { color: isConflict ? '#fbbf24' : '#929cb3', size: isConflict ? 10 : 9, face: 'Inter, sans-serif', strokeWidth: 2, strokeColor: '#080a0f', align: 'top' },
       width: isConflict ? 3 : (r.confidence === 'high' ? 2 : 1),
       smooth: { type: 'continuous', roundness: 0.2 },
     };
@@ -220,23 +540,31 @@ function renderGraph() {
   window.network = network;
 
   network.once('stabilizationIterationsDone', () => {
-    network.fit({ animation: { duration: 350, easingFunction: 'easeInOutQuad' } });
+    network.fit({ animation: { duration: 300, easingFunction: 'easeInOutQuad' } });
   });
-  network.once('stabilized', () => {
-    network.fit();
-  });
-  setTimeout(() => {
-    if (network) {
-      network.setSize('100%', '100%');
-      network.fit();
-    }
-  }, 250);
 
   network.on('click', (params) => {
-    if (params.nodes.length > 0) showNodeDetail(params.nodes[0]);
-    else nodeDetail.classList.add('hidden');
+    if (params.nodes.length > 0) {
+      selectedNodeId = params.nodes[0];
+      showNodeDetail(selectedNodeId);
+      updateAnalytics();
+    } else {
+      selectedNodeId = null;
+      if (nodeDetail) nodeDetail.classList.add('hidden');
+      updateAnalytics();
+    }
   });
 }
+
+// Focus a node in the graph on hub click
+window.focusGraphNode = function (nodeId) {
+  if (!network) return;
+  selectedNodeId = nodeId;
+  network.selectNodes([nodeId]);
+  network.focus(nodeId, { scale: 1.2, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+  showNodeDetail(nodeId);
+  updateAnalytics();
+};
 
 window.addEventListener('resize', () => {
   if (network) {
@@ -247,7 +575,7 @@ window.addEventListener('resize', () => {
 
 function showNodeDetail(nodeId) {
   const entity = graphData.entities.find(e => e.id === nodeId);
-  if (!entity) return;
+  if (!entity || !nodeDetail) return;
 
   document.getElementById('detail-name').textContent = entity.name;
   const typeEl = document.getElementById('detail-type');
@@ -275,22 +603,56 @@ function showNodeDetail(nodeId) {
   nodeDetail.classList.remove('hidden');
 }
 
-closeDetail.addEventListener('click', () => nodeDetail.classList.add('hidden'));
+if (closeDetail) {
+  closeDetail.addEventListener('click', () => {
+    if (nodeDetail) nodeDetail.classList.add('hidden');
+    selectedNodeId = null;
+    updateAnalytics();
+  });
+}
 
-// ─── Chat / Q&A ────────────────────────────────────────────────────────────────
-chatInput.addEventListener('input', () => {
-  btnSend.disabled = !chatInput.value.trim();
+// Ask AI About Entity from Node Detail or Analytics
+window.askAboutEntity = function (entityName) {
+  if (!entityName) return;
+  setLayout('chat-expanded');
+  chatInput.value = `What role does ${entityName} play, what are its relationships, and what sources describe it?`;
   chatInput.style.height = 'auto';
   chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
-});
-chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
-});
-btnSend.addEventListener('click', sendQuestion);
+  btnSend.disabled = false;
+  chatInput.focus();
+};
+
+if (btnAskAboutNode) {
+  btnAskAboutNode.addEventListener('click', () => {
+    const entity = graphData.entities.find(e => e.id === selectedNodeId);
+    if (entity) askAboutEntity(entity.name);
+  });
+}
+
+// ─── Chat / Q&A ────────────────────────────────────────────────────────────────
+if (chatInput) {
+  chatInput.addEventListener('input', () => {
+    btnSend.disabled = !chatInput.value.trim();
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
+  });
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+  });
+}
+
+if (btnSend) {
+  btnSend.addEventListener('click', sendQuestion);
+}
 
 async function sendQuestion() {
   const question = chatInput.value.trim();
   if (!question) return;
+
+  // If in exploration mode, expand chat first
+  if (currentLayout !== 'chat-expanded') {
+    setLayout('chat-expanded');
+  }
 
   const welcome = chatMessages.querySelector('.chat-welcome');
   if (welcome) welcome.remove();
@@ -383,31 +745,35 @@ function scrollChatBottom() {
 }
 
 // ─── Clear Graph ───────────────────────────────────────────────────────────────
-btnClear.addEventListener('click', async () => {
-  if (!confirm('Clear all documents and the knowledge graph?')) return;
-  try {
-    await fetch('/api/clear', { method: 'POST' });
-    graphData = { entities: [], relationships: [], documents: [] };
-    docItems.innerHTML = '';
-    docList.classList.add('hidden');
-    updateStats();
-    renderGraph();
-    chatMessages.innerHTML = `
-      <div class="chat-welcome">
-        <div class="welcome-icon">🧠</div>
-        <h3>Welcome to GraphMind</h3>
-        <p>Upload documents or load the demo, then ask questions.</p>
-        <div class="welcome-features">
-          <div class="feature"><span>📊</span> Multi-hop reasoning</div>
-          <div class="feature"><span>⚖️</span> Conflict detection</div>
-          <div class="feature"><span>🚫</span> Abstention guardrail</div>
-        </div>
-      </div>`;
-    nodeDetail.classList.add('hidden');
-  } catch (err) {
-    alert('Error: ' + err.message);
-  }
-});
+if (btnClear) {
+  btnClear.addEventListener('click', async () => {
+    if (!confirm('Clear all documents and the knowledge graph?')) return;
+    try {
+      await fetch('/api/clear', { method: 'POST' });
+      graphData = { entities: [], relationships: [], documents: [], conflicts: [] };
+      selectedNodeId = null;
+      if (docItems) docItems.innerHTML = '';
+      if (docList) docList.classList.add('hidden');
+      updateStats();
+      renderGraph();
+      updateAnalytics();
+      chatMessages.innerHTML = `
+        <div class="chat-welcome">
+          <div class="welcome-icon">🧠</div>
+          <h3>Welcome to GraphMind</h3>
+          <p>Upload documents or load the demo scenario, then ask questions grounded strictly in the knowledge graph.</p>
+          <div class="welcome-features">
+            <div class="feature"><span>📊</span> Multi-hop graph reasoning</div>
+            <div class="feature"><span>⚖️</span> Cross-document conflict detection</div>
+            <div class="feature"><span>🚫</span> Zero-hallucination abstention</div>
+          </div>
+        </div>`;
+      if (nodeDetail) nodeDetail.classList.add('hidden');
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  });
+}
 
 // ─── 1-Click Demo ──────────────────────────────────────────────────────────────
 if (btnDemo) {
@@ -419,8 +785,9 @@ if (btnDemo) {
       if (!res.ok) throw new Error(data.error || 'Demo load failed');
 
       graphData = data.graph;
-      docItems.innerHTML = '';
-      docList.classList.remove('hidden');
+      selectedNodeId = null;
+      if (docItems) docItems.innerHTML = '';
+      if (docList) docList.classList.remove('hidden');
 
       graphData.documents.forEach(d => {
         const cnt = graphData.entities.filter(e => e.sources?.some(s => s.documentId === d.id)).length;
@@ -429,10 +796,11 @@ if (btnDemo) {
 
       updateStats();
       renderGraph();
+      updateAnalytics();
 
       const welcome = chatMessages.querySelector('.chat-welcome');
       if (welcome) welcome.remove();
-      addMessage('bot-info', '⚡ Demo loaded! Click a preset above to test Multi-Hop, Conflict, or Abstention.');
+      addMessage('bot-info', '⚡ Demo scenario loaded! Multi-hop paths and budget conflicts are active in the graph. Click a preset prompt above to test Grounded Q&A.');
       hideLoading();
     } catch (err) {
       hideLoading();
@@ -469,6 +837,7 @@ document.querySelectorAll('.prompt-pill').forEach(pill => {
   pill.addEventListener('click', () => {
     const query = pill.getAttribute('data-query');
     if (!query) return;
+    setLayout('chat-expanded');
     chatInput.value = query;
     chatInput.style.height = 'auto';
     chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
@@ -531,6 +900,7 @@ async function checkApiStatus() {
         addDocChip(d.name, cnt);
       });
     }
+    updateAnalytics();
   } catch (err) {
     console.error('Failed to load initial graph:', err);
   }
