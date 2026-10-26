@@ -523,11 +523,19 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
     if (req.file) {
       docName = req.file.originalname;
+      const lowerName = (docName || '').toLowerCase();
       const isPdf =
         req.file.mimetype === 'application/pdf' ||
         req.file.mimetype === 'application/x-pdf' ||
-        docName.toLowerCase().endsWith('.pdf') ||
+        lowerName.endsWith('.pdf') ||
         (req.file.buffer && req.file.buffer.slice(0, 4).toString() === '%PDF');
+
+      const isTxt = lowerName.endsWith('.txt') || req.file.mimetype === 'text/plain';
+      const isMd = lowerName.endsWith('.md') || lowerName.endsWith('.markdown');
+
+      if (!isPdf && !isTxt && !isMd) {
+        return res.status(400).json({ error: `Unsupported file type for "${docName}". Only .pdf, .txt, and .md files are supported.` });
+      }
 
       if (isPdf) {
         text = await parsePDF(req.file.buffer);

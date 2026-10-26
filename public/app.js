@@ -483,11 +483,29 @@ if (fileInput) {
   });
 }
 
+const ALLOWED_EXTENSIONS = ['.pdf', '.txt', '.md'];
+
+function isValidFileType(filename) {
+  if (!filename) return false;
+  const lower = filename.toLowerCase();
+  return ALLOWED_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
 async function uploadFiles(files) {
-  for (const file of files) await uploadSingleFile(file);
+  for (const file of files) {
+    if (!isValidFileType(file.name)) {
+      alert(`Unsupported file type for "${file.name}". Only .pdf, .txt, and .md files are supported.`);
+      continue;
+    }
+    await uploadSingleFile(file);
+  }
 }
 
 async function uploadSingleFile(file) {
+  if (!isValidFileType(file.name)) {
+    alert(`Unsupported file type for "${file.name}". Only .pdf, .txt, and .md files are supported.`);
+    return;
+  }
   showLoading(`Extracting from "${file.name}"...`);
   try {
     const formData = new FormData();
