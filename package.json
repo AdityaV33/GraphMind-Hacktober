@@ -1,0 +1,20 @@
+{
+  "name": "mlh",
+  "version": "1.0.0",
+  "description": "Grounded Knowledge-Graph Q&A — Extract entities, build knowledge graphs, ask grounded questions",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "express": "^5.3.0",
+    "multer": "^2.5.0",
+    "pdf-parse": "^2.4.5"
+  }
+}

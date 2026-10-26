@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GraphMind — Grounded Knowledge-Graph Q&A</title>
+  <meta name="description" content="Upload documents, build knowledge graphs, and ask grounded questions with source citations.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ─── Loading Overlay ──────────────────────────────────────────────── -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="loading-content">
+      <div class="loading-spinner"></div>
+      <p id="loading-text">Processing...</p>
+    </div>
+  </div>
+
+  <!-- ─── Header ───────────────────────────────────────────────────────── -->
+  <header id="app-header">
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">🧠</span>
+        <h1>GraphMind</h1>
+      </div>
+      <span class="tagline">Grounded Knowledge-Graph Q&A</span>
+    </div>
+    <div class="header-right">
+      <div class="stats-bar" id="stats-bar">
+        <div class="stat" id="stat-docs">
+          <span class="stat-num">0</span>
+          <span class="stat-label">Docs</span>
+        </div>
+        <div class="stat" id="stat-entities">
+          <span class="stat-num">0</span>
+          <span class="stat-label">Entities</span>
+        </div>
+        <div class="stat" id="stat-relations">
+          <span class="stat-num">0</span>
+          <span class="stat-label">Relations</span>
+        </div>
+      </div>
+      <button id="btn-clear" class="btn-icon" title="Clear Graph">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ─── Main Layout ──────────────────────────────────────────────────── -->
+  <main id="app-main">
+    <!-- Left Panel: Upload + Graph -->
+    <section id="left-panel">
+      <!-- Upload Area -->
+      <div id="upload-section">
+        <div id="drop-zone" class="drop-zone">
+          <div class="drop-zone-content">
+            <div class="upload-icon">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            </div>
+            <p class="drop-text">Drop documents here or <span class="browse-link">browse</span></p>
+            <p class="drop-sub">.txt, .md, .pdf — up to 5MB</p>
+          </div>
+          <input type="file" id="file-input" accept=".txt,.md,.pdf,.csv,.json" multiple hidden>
+        </div>
+
+        <!-- Paste Text -->
+        <div class="paste-section">
+          <div class="paste-header">
+            <span>Or paste text directly</span>
+            <button id="btn-paste-submit" class="btn-small" disabled>Extract</button>
+          </div>
+          <textarea id="paste-input" placeholder="Paste your document text here..." rows="3"></textarea>
+        </div>
+
+        <!-- Document List -->
+        <div id="doc-list" class="doc-list hidden">
+          <h3>📄 Documents</h3>
+          <div id="doc-items"></div>
+        </div>
+      </div>
+
+      <!-- Graph Visualization -->
+      <div id="graph-section" class="graph-section">
+        <div class="graph-header">
+          <h3>🔗 Knowledge Graph</h3>
+          <div class="graph-legend" id="graph-legend"></div>
+        </div>
+        <div id="graph-container" class="graph-container">
+          <div class="graph-empty">
+            <p>Upload documents to build the knowledge graph</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Panel: Q&A Chat -->
+    <section id="right-panel">
+      <div class="chat-header">
+        <h3>💬 Ask Questions</h3>
+        <span class="chat-sub">Answers are grounded in your documents</span>
+      </div>
+
+      <div id="chat-messages" class="chat-messages">
+        <div class="chat-welcome">
+          <div class="welcome-icon">🧠</div>
+          <h3>Welcome to GraphMind</h3>
+          <p>Upload some documents, then ask questions. I'll answer using only the facts from your documents — with citations.</p>
+          <div class="welcome-features">
+            <div class="feature">
+              <span class="feature-icon">📊</span>
+              <span>Multi-hop reasoning across entities</span>
+            </div>
+            <div class="feature">
+              <span class="feature-icon">⚖️</span>
+              <span>Conflicting fact detection</span>
+            </div>
+            <div class="feature">
+              <span class="feature-icon">🚫</span>
+              <span>Refuses to fabricate answers</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-input-area">
+        <textarea id="chat-input" placeholder="Ask a question about your documents..." rows="1"></textarea>
+        <button id="btn-send" class="btn-send" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ─── Node Detail Panel (appears on click) ─────────────────────────── -->
+  <div id="node-detail" class="node-detail hidden">
+    <button id="close-detail" class="btn-icon close-btn">✕</button>
+    <h3 id="detail-name"></h3>
+    <span id="detail-type" class="detail-type"></span>
+    <p id="detail-desc"></p>
+    <div id="detail-sources"></div>
+    <div id="detail-relations"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
