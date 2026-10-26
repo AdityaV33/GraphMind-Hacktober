@@ -1084,13 +1084,30 @@ app.get('/api/health', (req, res) => {
 
 // ─── Start Server ──────────────────────────────────────────────────────────────
 const activeModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
-app.listen(PORT, () => {
-  console.log(`
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`
 ╔══════════════════════════════════════════════════════╗
 ║   🧠 Grounded Knowledge-Graph Q&A                   ║
 ║   Server running at http://localhost:${PORT}            ║
 ║   Model: ${activeModel} (Fastest & Free-Tier Safe)
 ║   Rate limit: 10 RPM (safety margin under 15 RPM)
 ╚══════════════════════════════════════════════════════╝
-  `);
-});
+    `);
+  });
+}
+
+// ─── Reusable Module Exports ───────────────────────────────────────────────────
+module.exports = {
+  app,
+  knowledgeGraph,
+  RateLimiter,
+  rateLimiter,
+  chunkText,
+  parsePDF,
+  callGemini,
+  getGeminiModel,
+  normalizeEntityName,
+};
+

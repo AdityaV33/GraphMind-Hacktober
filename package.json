@@ -1,16 +1,28 @@
 {
-  "name": "mlh",
+  "name": "graphmind",
   "version": "1.0.0",
   "description": "Grounded Knowledge-Graph Q&A — Extract entities, build knowledge graphs, ask grounded questions",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch --watch-path=. server.js",
-    "test": "node test/suite.js"
+    "test": "node test/suite.js",
+    "evaluate": "node evaluate.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "knowledge-graph",
+    "graph-rag",
+    "grounded-qa",
+    "gemini",
+    "hallucination-prevention",
+    "conflict-detection",
+    "multi-hop-reasoning"
+  ],
+  "author": "GraphMind Contributors",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
