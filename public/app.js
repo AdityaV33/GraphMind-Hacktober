@@ -848,12 +848,7 @@ if (btnClear) {
         <div class="chat-welcome">
           <div class="welcome-icon">🧠</div>
           <h3>Welcome to GraphMind</h3>
-          <p>Upload documents or load the demo scenario, then ask questions grounded strictly in the knowledge graph.</p>
-          <div class="welcome-features">
-            <div class="feature"><span>📊</span> Multi-hop graph reasoning</div>
-            <div class="feature"><span>⚖️</span> Cross-document conflict detection</div>
-            <div class="feature"><span>🚫</span> Zero-hallucination abstention</div>
-          </div>
+          <p>Upload documents or paste text to extract entities, relationships, and ask questions grounded strictly in your knowledge graph.</p>
         </div>`;
       if (nodeDetail) nodeDetail.classList.add('hidden');
     } catch (err) {
