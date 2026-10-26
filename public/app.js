@@ -8,14 +8,14 @@ let selectedNodeId = null;
 
 // ─── Entity Type Colors & Shapes ───────────────────────────────────────────────
 const TYPE_COLORS = {
-  person: '#8b5cf6',
-  organization: '#3b82f6',
-  team: '#06b6d4',
-  event: '#f59e0b',
-  place: '#10b981',
-  resource: '#f97316',
-  concept: '#f43f5e',
-  unknown: '#6b7280',
+  person: '#cbd5e1',       // Platinum / silver slate
+  organization: '#38bdf8', // Ice blue
+  team: '#2dd4bf',         // Mint teal
+  event: '#f59e0b',        // Warm champagne gold
+  place: '#10b981',        // Emerald
+  resource: '#fb923c',     // Warm bronze
+  concept: '#94a3b8',      // Titanium slate
+  unknown: '#64748b',      // Steel grey
 };
 
 const TYPE_SHAPES = {
@@ -78,6 +78,15 @@ function setLayout(mode) {
   } else {
     workspace.classList.remove('layout-chat-expanded');
     workspace.classList.add('layout-exploration');
+    const chatPanel = document.getElementById('chat-panel');
+    const graphStageWrapper = document.getElementById('graph-stage-wrapper');
+    if (chatPanel) {
+      chatPanel.style.width = '';
+      chatPanel.style.maxWidth = '';
+    }
+    if (graphStageWrapper) {
+      graphStageWrapper.style.height = '';
+    }
   }
 
   // Allow CSS transition to settle, then fit vis.js canvas seamlessly
@@ -116,6 +125,119 @@ if (btnToggleFloating && floatingPanel) {
     const isMinimized = floatingPanel.classList.toggle('minimized');
     btnToggleFloating.textContent = isMinimized ? '+' : '−';
   });
+}
+
+// ─── Workspace Resizers (3 Windows in Expanded Chat Mode) ──────────────────────
+function initResizers() {
+  const resizerChat = document.getElementById('resizer-chat');
+  const resizerAnalytics = document.getElementById('resizer-analytics');
+  const chatPanel = document.getElementById('chat-panel');
+  const graphWorkspacePanel = document.getElementById('graph-workspace-panel');
+  const graphStageWrapper = document.getElementById('graph-stage-wrapper');
+  const btnResizeChat = document.getElementById('btn-resize-chat');
+  const btnResizeAnalytics = document.getElementById('btn-resize-analytics');
+
+  // 1. Column Resizer (Left Workspace vs Chat Panel)
+  if (resizerChat && chatPanel && workspace) {
+    let isDraggingCol = false;
+    let startX = 0;
+    let startChatWidth = 0;
+
+    resizerChat.addEventListener('mousedown', (e) => {
+      if (currentLayout !== 'chat-expanded') return;
+      isDraggingCol = true;
+      startX = e.clientX;
+      startChatWidth = chatPanel.getBoundingClientRect().width;
+      resizerChat.classList.add('is-dragging');
+      document.body.classList.add('is-resizing-col');
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDraggingCol) return;
+      const totalWidth = workspace.getBoundingClientRect().width;
+      const deltaX = startX - e.clientX;
+      const newWidth = Math.max(280, Math.min(totalWidth * 0.8, startChatWidth + deltaX));
+      chatPanel.style.width = newWidth + 'px';
+      chatPanel.style.maxWidth = '85%';
+      if (network) network.redraw();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!isDraggingCol) return;
+      isDraggingCol = false;
+      resizerChat.classList.remove('is-dragging');
+      document.body.classList.remove('is-resizing-col');
+      if (network) network.fit({ animation: false });
+    });
+  }
+
+  // 2. Row Resizer (Graph Stage vs Docked Analytics)
+  if (resizerAnalytics && graphStageWrapper && graphWorkspacePanel) {
+    let isDraggingRow = false;
+    let startY = 0;
+    let startGraphHeight = 0;
+
+    resizerAnalytics.addEventListener('mousedown', (e) => {
+      if (currentLayout !== 'chat-expanded') return;
+      isDraggingRow = true;
+      startY = e.clientY;
+      startGraphHeight = graphStageWrapper.getBoundingClientRect().height;
+      resizerAnalytics.classList.add('is-dragging');
+      document.body.classList.add('is-resizing-row');
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDraggingRow) return;
+      const totalHeight = graphWorkspacePanel.getBoundingClientRect().height;
+      const deltaY = e.clientY - startY;
+      const newHeight = Math.max(160, Math.min(totalHeight - 140, startGraphHeight + deltaY));
+      graphStageWrapper.style.height = newHeight + 'px';
+      if (network) network.redraw();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!isDraggingRow) return;
+      isDraggingRow = false;
+      resizerAnalytics.classList.remove('is-dragging');
+      document.body.classList.remove('is-resizing-row');
+      if (network) network.fit({ animation: false });
+    });
+  }
+
+  // 3. Quick Toggle Presets for Chat Width (Default 35% -> Wide 55% -> Full 75%)
+  if (btnResizeChat && chatPanel && workspace) {
+    let chatPresetIndex = 0;
+    const presets = [0.35, 0.55, 0.72];
+    btnResizeChat.addEventListener('click', () => {
+      chatPresetIndex = (chatPresetIndex + 1) % presets.length;
+      const totalWidth = workspace.getBoundingClientRect().width;
+      const targetWidth = Math.round(totalWidth * presets[chatPresetIndex]);
+      chatPanel.style.width = targetWidth + 'px';
+      chatPanel.style.maxWidth = '85%';
+      btnResizeChat.setAttribute('title', `Chat size: ${Math.round(presets[chatPresetIndex] * 100)}% (click to cycle)`);
+      setTimeout(() => {
+        if (network) network.fit({ animation: true });
+      }, 300);
+    });
+  }
+
+  // 4. Quick Toggle Presets for Graph vs Analytics (52% / 32% / 75%)
+  if (btnResizeAnalytics && graphStageWrapper && graphWorkspacePanel) {
+    let analyticsPresetIndex = 0;
+    const presets = [0.52, 0.32, 0.75];
+    btnResizeAnalytics.addEventListener('click', () => {
+      analyticsPresetIndex = (analyticsPresetIndex + 1) % presets.length;
+      const totalHeight = graphWorkspacePanel.getBoundingClientRect().height;
+      const targetHeight = Math.round(totalHeight * presets[analyticsPresetIndex]);
+      graphStageWrapper.style.height = targetHeight + 'px';
+      btnResizeAnalytics.setAttribute('title', `Graph size: ${Math.round(presets[analyticsPresetIndex] * 100)}% (click to cycle)`);
+      setTimeout(() => {
+        if (network) network.fit({ animation: true });
+      }, 300);
+    });
+  }
 }
 
 // ─── Stats Bar ─────────────────────────────────────────────────────────────────
@@ -344,9 +466,9 @@ function renderDockedAnalytics(analytics) {
   if (analytics.contextual) {
     const ctx = analytics.contextual;
     html += `
-      <div class="docked-card" style="border-color:rgba(139,92,246,0.35); background:rgba(139,92,246,0.05); grid-column:1 / -1;">
+      <div class="docked-card" style="border-color:rgba(245,158,11,0.35); background:linear-gradient(135deg, rgba(245,158,11,0.06), rgba(20,24,32,0.8)); grid-column:1 / -1;">
         <div class="docked-card-title">
-          <span style="color:#c4b5fd;">🎯 Active Entity Focus: ${escapeHtml(ctx.name)}</span>
+          <span style="color:#fbbf24;">🎯 Active Entity Focus: ${escapeHtml(ctx.name)}</span>
           <button class="btn-sm" style="padding:3px 10px; font-size:10px;" onclick="askAboutEntity('${escapeHtml(ctx.name)}')">Ask AI About ${escapeHtml(ctx.name)}</button>
         </div>
         <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:11px; color:var(--text-2);">
@@ -601,8 +723,8 @@ function renderGraph() {
       label: r.relation,
       arrows: 'to',
       color: isConflict ? { color: '#f59e0b', highlight: '#fbbf24', hover: '#fbbf24' } : {
-        color: r.confidence === 'high' ? 'rgba(139,92,246,0.6)' : r.confidence === 'medium' ? 'rgba(245,158,11,0.5)' : 'rgba(107,114,128,0.4)',
-        highlight: '#8b5cf6', hover: '#8b5cf6',
+        color: r.confidence === 'high' ? 'rgba(203,213,225,0.55)' : r.confidence === 'medium' ? 'rgba(245,158,11,0.45)' : 'rgba(100,116,139,0.35)',
+        highlight: '#f8fafc', hover: '#ffffff',
       },
       dashes: isConflict ? [6, 4] : (r.confidence === 'low'),
       font: { color: isConflict ? '#fbbf24' : '#929cb3', size: isConflict ? 10 : 9, face: 'Inter, sans-serif', strokeWidth: 2, strokeColor: '#080a0f', align: 'top' },
@@ -968,6 +1090,7 @@ async function checkApiStatus() {
 
 // ─── Init ──────────────────────────────────────────────────────────────────────
 (async function init() {
+  initResizers();
   checkApiStatus();
   try {
     const res = await fetch('/api/graph');

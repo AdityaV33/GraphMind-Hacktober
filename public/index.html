@@ -123,8 +123,12 @@
               <span>Open Chat</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </button>
-          </div>
         </div>
+      </div>
+
+      <!-- Vertical Resize Handle (Between Graph and Analytics) -->
+      <div id="resizer-analytics" class="resizer-row" title="Drag to resize Graph & Analytics heights" aria-label="Resize graph and analytics">
+        <div class="resizer-handle-pill"></div>
       </div>
 
       <!-- ─── Docked Analytics Section (Expanded Mode, Directly Beneath Graph) ─── -->
@@ -136,6 +140,9 @@
           </div>
           <div class="docked-header-right">
             <span id="analytics-timestamp" class="analytics-timestamp">Auto-derived from active graph data</span>
+            <button id="btn-resize-analytics" class="btn-resize-pill" title="Toggle analytics height (Default / Expand / Compact)" aria-label="Resize analytics window">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>
+            </button>
           </div>
         </div>
         <div id="docked-analytics-grid" class="docked-analytics-grid">
@@ -144,6 +151,11 @@
       </section>
 
     </section>
+
+    <!-- Horizontal Resize Handle (Between Graph Workspace and Chat Panel) -->
+    <div id="resizer-chat" class="resizer-col" title="Drag to resize Chat width" aria-label="Resize chat panel">
+      <div class="resizer-handle-pill"></div>
+    </div>
 
     <!-- ─── RIGHT: Expanded Chat Workspace Panel ───────────────────────── -->
     <section id="chat-panel" class="chat-panel" aria-label="Grounded AI Chat Workspace">
@@ -155,9 +167,14 @@
           </div>
           <span class="chat-sub">Answers cite exact sources · strict abstention</span>
         </div>
-        <button id="btn-collapse-chat" class="btn-collapse" title="Collapse chat to exploration mode" aria-label="Collapse chat">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
+        <div class="chat-header-actions">
+          <button id="btn-resize-chat" class="btn-resize-pill" title="Toggle chat width (Default / Wide / Full)" aria-label="Resize chat window">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+          </button>
+          <button id="btn-collapse-chat" class="btn-collapse" title="Collapse chat to exploration mode" aria-label="Collapse chat">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
       </div>
 
       <!-- Chat Messages Container -->
