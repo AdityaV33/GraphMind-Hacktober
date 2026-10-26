@@ -111,6 +111,14 @@ async function callGemini(prompt, retries = 2) {
   }
 }
 
+function normalizeEntityName(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/^(dr\.|doctor|prof\.|professor|mr\.|mrs\.|ms\.)\s+/i, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
 // ─── In-Memory Knowledge Graph ─────────────────────────────────────────────────
 const knowledgeGraph = {
   entities: new Map(),   // id -> { id, name, type, description, sources: [] }
@@ -122,21 +130,40 @@ const knowledgeGraph = {
   },
 
   addEntity(entity, documentId) {
-    const existing = this.entities.get(entity.id);
-    if (existing) {
-      // Merge sources
-      existing.sources.push({ documentId, sourceText: entity.sourceText || '' });
-      if (entity.description && !existing.description) {
-        existing.description = entity.description;
+    if (!entity || !entity.id) return null;
+
+    // 1. Direct ID match
+    let canonical = this.entities.get(entity.id);
+
+    // 2. Normalized name match if not found by exact ID
+    if (!canonical) {
+      const normNew = normalizeEntityName(entity.name || entity.id);
+      if (normNew.length > 2) {
+        for (const [existingId, existing] of this.entities) {
+          if (normalizeEntityName(existing.name) === normNew || normalizeEntityName(existingId) === normNew) {
+            canonical = existing;
+            break;
+          }
+        }
       }
+    }
+
+    if (canonical) {
+      // Merge sources and description across documents
+      canonical.sources.push({ documentId, sourceText: entity.sourceText || '' });
+      if (entity.description && !canonical.description) {
+        canonical.description = entity.description;
+      }
+      return canonical.id;
     } else {
       this.entities.set(entity.id, {
         id: entity.id,
-        name: entity.name,
+        name: entity.name || entity.id,
         type: entity.type || 'unknown',
         description: entity.description || '',
         sources: [{ documentId, sourceText: entity.sourceText || '' }],
       });
+      return entity.id;
     }
   },
 
@@ -331,11 +358,16 @@ function chunkText(text, maxChunkSize = 25000, overlap = 1500) {
 }
 
 // ─── Extraction Prompt ─────────────────────────────────────────────────────────
-function buildExtractionPrompt(text, documentName) {
+function buildExtractionPrompt(text, documentName, existingEntities = []) {
+  const existingSection = (existingEntities && existingEntities.length > 0)
+    ? `\nEXISTING ENTITIES ALREADY IN KNOWLEDGE GRAPH (Reuse these exact IDs when mentioned):
+${existingEntities.slice(0, 40).map(e => `- ID: "${e.id}", Name: "${e.name}" (${e.type})`).join('\n')}\n`
+    : '';
+
   return `You are an entity and relationship extractor. Analyze this document and extract ALL entities (people, teams, organizations, events, places, resources, concepts) and their relationships.
 
 DOCUMENT NAME: "${documentName}"
-DOCUMENT TEXT:
+${existingSection}DOCUMENT TEXT:
 """
 ${text.slice(0, 35000)}
 """
@@ -364,7 +396,8 @@ Respond ONLY with valid JSON matching this exact schema (no markdown, no explana
 
 RULES:
 - Entity IDs must be lowercase_snake_case
-- Every relationship source/target MUST reference an entity ID from your entities list
+- IMPORTANT CROSS-DOCUMENT LINKING: If the text refers to any entity in the EXISTING ENTITIES list, you MUST use that entity's exact ID so relationships connect to the existing graph!
+- Every relationship source/target MUST reference an entity ID from your entities list or the EXISTING ENTITIES list
 - sourceText must be EXACT quotes from the document, not paraphrased
 - Only extract relationships explicitly stated or strongly implied in the text
 - Do NOT fabricate or infer relationships not supported by the text
@@ -498,19 +531,36 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         console.log(`🔍 Extracting chunk ${i + 1}/${maxChunks} (${chunk.length} chars)...`);
       }
 
-      const prompt = buildExtractionPrompt(chunk, chunkLabel);
+      // Provide known entities so Gemini connects relationships across documents
+      const knownEntities = Array.from(knowledgeGraph.entities.values()).map(e => ({
+        id: e.id,
+        name: e.name,
+        type: e.type,
+      }));
+
+      const prompt = buildExtractionPrompt(chunk, chunkLabel, knownEntities);
       try {
         const response = await callGemini(prompt);
         const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         const extracted = JSON.parse(cleaned);
 
+        const idMap = new Map();
         for (const entity of (extracted.entities || [])) {
-          knowledgeGraph.addEntity(entity, docId);
-          entityCount++;
+          const canonicalId = knowledgeGraph.addEntity(entity, docId);
+          if (canonicalId) {
+            idMap.set(entity.id, canonicalId);
+            entityCount++;
+          }
         }
         for (const rel of (extracted.relationships || [])) {
-          if (knowledgeGraph.entities.has(rel.source) && knowledgeGraph.entities.has(rel.target)) {
-            knowledgeGraph.addRelationship(rel, docId);
+          const resolvedSource = idMap.get(rel.source) || rel.source;
+          const resolvedTarget = idMap.get(rel.target) || rel.target;
+          if (knowledgeGraph.entities.has(resolvedSource) && knowledgeGraph.entities.has(resolvedTarget)) {
+            knowledgeGraph.addRelationship({
+              ...rel,
+              source: resolvedSource,
+              target: resolvedTarget,
+            }, docId);
             relCount++;
           }
         }
