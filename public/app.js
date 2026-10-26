@@ -469,8 +469,33 @@ function lightenColor(hex, percent) {
   return `rgb(${r},${g},${b})`;
 }
 
+// ─── API Health Check ──────────────────────────────────────────────────────────
+async function checkApiStatus() {
+  const badge = document.getElementById('api-status-badge');
+  const text = document.getElementById('api-status-text');
+  if (!badge || !text) return;
+
+  try {
+    const res = await fetch('/api/health');
+    const data = await res.json();
+    if (data.geminiConfigured) {
+      badge.className = 'api-badge status-connected';
+      text.textContent = 'Gemini Active';
+      badge.title = `Model: ${data.model} | Key: ${data.apiKeyMasked}`;
+    } else {
+      badge.className = 'api-badge status-missing';
+      text.textContent = 'API Key Missing';
+      badge.title = 'Add GEMINI_API_KEY to your .env file';
+    }
+  } catch (err) {
+    badge.className = 'api-badge status-missing';
+    text.textContent = 'Server Offline';
+  }
+}
+
 // ─── Init ──────────────────────────────────────────────────────────────────────
 (async function init() {
+  checkApiStatus();
   try {
     const res = await fetch('/api/graph');
     graphData = await res.json();

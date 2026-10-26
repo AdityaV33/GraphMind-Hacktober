@@ -80,7 +80,42 @@ html, body {
 .stat { display: flex; align-items: center; gap: 4px; }
 .stat-num { font-size: 14px; font-weight: 700; color: var(--purple); }
 .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-3); }
-.header-right { display: flex; align-items: center; gap: 6px; }
+.header-right { display: flex; align-items: center; gap: 8px; }
+
+/* API Status Badge */
+.api-badge {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: default;
+}
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text-3);
+  box-shadow: 0 0 6px var(--text-3);
+  transition: var(--transition);
+}
+.api-badge.status-connected {
+  border-color: rgba(16,185,129,0.3);
+  background: rgba(16,185,129,0.08);
+  color: #34d399;
+}
+.api-badge.status-connected .status-dot {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+.api-badge.status-missing {
+  border-color: rgba(244,63,94,0.3);
+  background: rgba(244,63,94,0.08);
+  color: #fb7185;
+}
+.api-badge.status-missing .status-dot {
+  background: #f43f5e;
+  box-shadow: 0 0 8px #f43f5e;
+}
 
 /* Header buttons */
 .btn-demo {

@@ -5,21 +5,30 @@ const fs = require('fs');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // ─── Environment Variables (Auto-load .env if present) ─────────────────────────
-const envPath = path.join(__dirname, '.env');
-if (fs.existsSync(envPath)) {
-  const envContent = fs.readFileSync(envPath, 'utf-8');
-  envContent.split(/\r?\n/).forEach(line => {
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith('#')) {
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx !== -1) {
-        const key = trimmed.slice(0, eqIdx).trim();
-        const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
-        if (!process.env[key]) process.env[key] = val;
-      }
+function loadEnv() {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    try {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      envContent.split(/\r?\n/).forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx !== -1) {
+            const key = trimmed.slice(0, eqIdx).trim();
+            const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+            if (val) {
+              process.env[key] = val;
+            }
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('⚠️ Could not load .env file:', e.message);
     }
-  });
+  }
 }
+loadEnv();
 
 // ─── Config ────────────────────────────────────────────────────────────────────
 const app = express();
@@ -29,17 +38,16 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── Gemini Setup (Free Tier Safe: gemini-3.5-flash-lite) ───────────────────────────
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
-let GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-let genAI = null;
-let model = null;
-
-if (GEMINI_API_KEY) {
-  genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  model = genAI.getGenerativeModel({ model: MODEL_NAME });
-} else {
-  console.warn('⚠️ GEMINI_API_KEY not set yet. Create a .env file or set GEMINI_API_KEY environment variable.');
+// ─── Gemini Setup (Dynamic reload on each request) ───────────────────────────
+function getGeminiModel() {
+  loadEnv(); // Reload .env dynamically so user edits take effect immediately
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured. Please add GEMINI_API_KEY=... in your .env file.');
+  }
+  const modelName = (process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite').trim();
+  const genAI = new GoogleGenerativeAI(apiKey);
+  return genAI.getGenerativeModel({ model: modelName });
 }
 
 // ─── Rate Limiter (Free Tier: 15 RPM, 1M TPM) ─────────────────────────────────
@@ -85,18 +93,11 @@ class RateLimiter {
 const rateLimiter = new RateLimiter(10); // Stay well under 15 RPM
 
 async function callGemini(prompt, retries = 2) {
-  if (!model) {
-    if (process.env.GEMINI_API_KEY) {
-      genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      model = genAI.getGenerativeModel({ model: MODEL_NAME });
-    } else {
-      throw new Error('GEMINI_API_KEY is not configured. Please add GEMINI_API_KEY=... in your .env file.');
-    }
-  }
+  const activeModel = getGeminiModel();
   await rateLimiter.acquire();
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const result = await model.generateContent(prompt);
+      const result = await activeModel.generateContent(prompt);
       return result.response.text();
     } catch (err) {
       if (err.status === 429 && attempt < retries) {
@@ -643,13 +644,33 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
+// Health & Configuration status check
+app.get('/api/health', (req, res) => {
+  loadEnv();
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+  const hasKey = Boolean(apiKey);
+  const maskedKey = hasKey ? `${apiKey.slice(0, 7)}...${apiKey.slice(-4)}` : null;
+  res.json({
+    status: 'ok',
+    geminiConfigured: hasKey,
+    apiKeyMasked: maskedKey,
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    stats: {
+      documents: knowledgeGraph.documents.size,
+      entities: knowledgeGraph.entities.size,
+      relationships: knowledgeGraph.relationships.length,
+    }
+  });
+});
+
 // ─── Start Server ──────────────────────────────────────────────────────────────
+const activeModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 app.listen(PORT, () => {
   console.log(`
 ╔══════════════════════════════════════════════════════╗
 ║   🧠 Grounded Knowledge-Graph Q&A                   ║
 ║   Server running at http://localhost:${PORT}            ║
-║   Model: ${MODEL_NAME} (Fastest & Free-Tier Safe)
+║   Model: ${activeModel} (Fastest & Free-Tier Safe)
 ║   Rate limit: 10 RPM (safety margin under 15 RPM)
 ╚══════════════════════════════════════════════════════╝
   `);
