@@ -394,7 +394,7 @@ async function uploadSingleFile(file) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     graphData = data.graph;
-    addDocChip(data.documentName, data.extracted.entities);
+    renderDocChips();
     updateStats();
     renderGraph();
     updateAnalytics();
@@ -426,7 +426,7 @@ if (btnPasteSubmit) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
       graphData = data.graph;
-      addDocChip(data.documentName, data.extracted.entities);
+      renderDocChips();
       updateStats();
       renderGraph();
       updateAnalytics();
@@ -440,15 +440,80 @@ if (btnPasteSubmit) {
   });
 }
 
-// ─── Document Chips ────────────────────────────────────────────────────────────
-function addDocChip(name, entityCount) {
+// ─── Document Chips & Removal ─────────────────────────────────────────────────
+function renderDocChips() {
   if (!docList || !docItems) return;
+  docItems.innerHTML = '';
+
+  if (!graphData.documents || graphData.documents.length === 0) {
+    docList.classList.add('hidden');
+    return;
+  }
+
   docList.classList.remove('hidden');
-  const chip = document.createElement('span');
-  chip.className = 'doc-chip';
-  chip.innerHTML = `📄 ${escapeHtml(name)} <span class="chip-badge">${entityCount}</span>`;
-  docItems.appendChild(chip);
+  graphData.documents.forEach(d => {
+    const cnt = graphData.entities.filter(e => e.sources?.some(s => s.documentId === d.id)).length;
+    const chip = document.createElement('span');
+    chip.className = 'doc-chip';
+    chip.setAttribute('data-doc-id', d.id);
+    chip.setAttribute('title', `${d.name} (${cnt} entities). Hover to remove.`);
+    chip.innerHTML = `
+      <span class="doc-chip-label" title="${escapeHtml(d.name)}">📄 ${escapeHtml(d.name)}</span>
+      <span class="chip-badge" title="${cnt} extracted entities">${cnt}</span>
+      <button type="button" class="doc-remove-btn" title="Remove ${escapeHtml(d.name)}" aria-label="Remove ${escapeHtml(d.name)}">✕</button>
+    `;
+
+    const removeBtn = chip.querySelector('.doc-remove-btn');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        removeDocument(d.id, e);
+      });
+    }
+
+    docItems.appendChild(chip);
+  });
 }
+
+function addDocChip(name, entityCount) {
+  renderDocChips();
+}
+
+window.removeDocument = async function (docId, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const doc = graphData.documents.find(d => d.id === docId);
+  const docName = doc?.name || 'document';
+
+  if (!confirm(`Remove "${docName}" from the knowledge graph?`)) return;
+
+  showLoading(`Removing "${docName}"...`);
+  try {
+    const res = await fetch(`/api/documents/${encodeURIComponent(docId)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to remove document');
+
+    graphData = data.graph;
+    if (selectedNodeId && !graphData.entities.some(e => e.id === selectedNodeId)) {
+      selectedNodeId = null;
+      if (nodeDetail) nodeDetail.classList.add('hidden');
+    }
+
+    renderDocChips();
+    updateStats();
+    renderGraph();
+    updateAnalytics();
+
+    addMessage('bot-info', `🗑️ Removed "${docName}". Knowledge graph and analytics have been dynamically updated.`);
+    hideLoading();
+  } catch (err) {
+    hideLoading();
+    alert('Error: ' + err.message);
+  }
+};
 
 // ─── Graph Rendering ───────────────────────────────────────────────────────────
 function renderGraph() {
@@ -786,13 +851,7 @@ if (btnDemo) {
 
       graphData = data.graph;
       selectedNodeId = null;
-      if (docItems) docItems.innerHTML = '';
-      if (docList) docList.classList.remove('hidden');
-
-      graphData.documents.forEach(d => {
-        const cnt = graphData.entities.filter(e => e.sources?.some(s => s.documentId === d.id)).length;
-        addDocChip(d.name, cnt);
-      });
+      renderDocChips();
 
       updateStats();
       renderGraph();
@@ -895,11 +954,8 @@ async function checkApiStatus() {
     updateStats();
     if (graphData.entities.length > 0) {
       renderGraph();
-      graphData.documents.forEach(d => {
-        const cnt = graphData.entities.filter(e => e.sources?.some(s => s.documentId === d.id)).length;
-        addDocChip(d.name, cnt);
-      });
     }
+    renderDocChips();
     updateAnalytics();
   } catch (err) {
     console.error('Failed to load initial graph:', err);

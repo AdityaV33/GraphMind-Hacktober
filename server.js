@@ -292,6 +292,39 @@ const knowledgeGraph = {
     };
   },
 
+  // Remove single document and prune exclusive entities and relationships
+  removeDocument(documentId) {
+    if (!this.documents.has(documentId)) {
+      return false;
+    }
+    const docName = this.documents.get(documentId)?.name || documentId;
+    this.documents.delete(documentId);
+
+    // Remove relationships that came from this document
+    this.relationships = this.relationships.filter(r => r.documentId !== documentId);
+
+    // Prune document from entities' sources
+    const entitiesToRemove = [];
+    for (const [id, entity] of this.entities) {
+      entity.sources = (entity.sources || []).filter(s => s.documentId !== documentId);
+      if (entity.sources.length === 0) {
+        entitiesToRemove.push(id);
+      }
+    }
+
+    // Delete entities with no remaining sources
+    for (const id of entitiesToRemove) {
+      this.entities.delete(id);
+    }
+
+    // Clean up any relationships whose endpoints no longer exist
+    this.relationships = this.relationships.filter(r =>
+      this.entities.has(r.source) && this.entities.has(r.target)
+    );
+
+    return { removedName: docName, remainingDocuments: this.documents.size };
+  },
+
   // Clear everything
   clear() {
     this.entities.clear();
@@ -697,6 +730,35 @@ The Quantum Computing Sandbox is hosted on the Hyperion Supercomputer at Oak Rid
         expectedRefusal: 'Strict decline / unsupported response without fabricated dates',
       },
     ]
+  });
+});
+
+// Remove single document
+app.delete('/api/documents/:id', (req, res) => {
+  const docId = req.params.id;
+  const result = knowledgeGraph.removeDocument(docId);
+  if (!result) {
+    return res.status(404).json({ error: 'Document not found' });
+  }
+  res.json({
+    success: true,
+    message: `Document "${result.removedName}" removed`,
+    documentId: docId,
+    graph: knowledgeGraph.toJSON(),
+  });
+});
+
+app.post('/api/documents/:id/delete', (req, res) => {
+  const docId = req.params.id;
+  const result = knowledgeGraph.removeDocument(docId);
+  if (!result) {
+    return res.status(404).json({ error: 'Document not found' });
+  }
+  res.json({
+    success: true,
+    message: `Document "${result.removedName}" removed`,
+    documentId: docId,
+    graph: knowledgeGraph.toJSON(),
   });
 });
 
