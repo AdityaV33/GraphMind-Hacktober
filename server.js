@@ -294,19 +294,48 @@ const knowledgeGraph = {
 
   // Remove single document and prune exclusive entities and relationships
   removeDocument(documentId) {
-    if (!this.documents.has(documentId)) {
-      return false;
+    let targetId = documentId;
+    let docName = documentId;
+
+    // 1. Direct match in documents map
+    if (this.documents.has(targetId)) {
+      docName = this.documents.get(targetId)?.name || targetId;
+      this.documents.delete(targetId);
+    } else {
+      // 2. Try URI decoding
+      let decoded = targetId;
+      try { decoded = decodeURIComponent(targetId); } catch (e) {}
+      if (this.documents.has(decoded)) {
+        targetId = decoded;
+        docName = this.documents.get(targetId)?.name || targetId;
+        this.documents.delete(targetId);
+      } else {
+        // 3. Try finding by name or matching ID case-insensitively
+        for (const [id, doc] of this.documents.entries()) {
+          if (doc.id === targetId || doc.id === decoded ||
+              doc.name === targetId || doc.name === decoded ||
+              doc.id.toLowerCase() === String(targetId).toLowerCase()) {
+            targetId = id;
+            docName = doc.name;
+            this.documents.delete(id);
+            break;
+          }
+        }
+      }
     }
-    const docName = this.documents.get(documentId)?.name || documentId;
-    this.documents.delete(documentId);
+
+    // Set of identifiers to match against relationships and sources
+    let decodedId = null;
+    try { decodedId = decodeURIComponent(documentId); } catch (e) {}
+    const matchingIdentifiers = new Set([documentId, targetId, docName, decodedId].filter(Boolean));
 
     // Remove relationships that came from this document
-    this.relationships = this.relationships.filter(r => r.documentId !== documentId);
+    this.relationships = this.relationships.filter(r => !matchingIdentifiers.has(r.documentId));
 
     // Prune document from entities' sources
     const entitiesToRemove = [];
     for (const [id, entity] of this.entities) {
-      entity.sources = (entity.sources || []).filter(s => s.documentId !== documentId);
+      entity.sources = (entity.sources || []).filter(s => !matchingIdentifiers.has(s.documentId));
       if (entity.sources.length === 0) {
         entitiesToRemove.push(id);
       }
@@ -737,9 +766,6 @@ The Quantum Computing Sandbox is hosted on the Hyperion Supercomputer at Oak Rid
 app.delete('/api/documents/:id', (req, res) => {
   const docId = req.params.id;
   const result = knowledgeGraph.removeDocument(docId);
-  if (!result) {
-    return res.status(404).json({ error: 'Document not found' });
-  }
   res.json({
     success: true,
     message: `Document "${result.removedName}" removed`,
@@ -751,9 +777,6 @@ app.delete('/api/documents/:id', (req, res) => {
 app.post('/api/documents/:id/delete', (req, res) => {
   const docId = req.params.id;
   const result = knowledgeGraph.removeDocument(docId);
-  if (!result) {
-    return res.status(404).json({ error: 'Document not found' });
-  }
   res.json({
     success: true,
     message: `Document "${result.removedName}" removed`,

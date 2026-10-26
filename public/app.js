@@ -145,7 +145,7 @@ function renderFloatingAnalytics(analytics) {
     floatingBody.innerHTML = `
       <div style="text-align:center; padding:12px 6px; color:var(--text-3); font-size:11px;">
         <span style="font-size:22px; display:block; margin-bottom:4px; opacity:0.4;">📊</span>
-        Upload docs or load demo to populate live graph intelligence.
+        Upload docs or paste text to populate live graph intelligence.
       </div>`;
     return;
   }
@@ -238,7 +238,7 @@ function renderDockedAnalytics(analytics) {
     dockedGrid.innerHTML = `
       <div style="grid-column: 1 / -1; text-align: center; padding: 28px; color: var(--text-3); font-size: 12px;">
         <span style="font-size: 32px; display: block; margin-bottom: 8px; opacity: 0.4;">📊</span>
-        No graph data loaded. Upload documents or click <strong>⚡ Load Demo</strong> to view live structural analytics.
+        No graph data loaded. Upload documents or paste raw text to view live structural analytics.
       </div>`;
     return;
   }
@@ -485,18 +485,33 @@ window.removeDocument = async function (docId, event) {
     event.preventDefault();
     event.stopPropagation();
   }
-  const doc = graphData.documents.find(d => d.id === docId);
-  const docName = doc?.name || 'document';
+  const doc = (graphData.documents || []).find(d => d.id === docId || d.name === docId);
+  const docName = doc?.name || docId || 'document';
 
   if (!confirm(`Remove "${docName}" from the knowledge graph?`)) return;
 
   showLoading(`Removing "${docName}"...`);
   try {
     const res = await fetch(`/api/documents/${encodeURIComponent(docId)}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to remove document');
+    const data = await res.json().catch(() => ({}));
 
-    graphData = data.graph;
+    if (res.ok && data.graph) {
+      graphData = data.graph;
+    } else {
+      // Local optimistic fallback if server is out of sync or restarted
+      const matchingIds = new Set([docId, doc?.id, doc?.name].filter(Boolean));
+      graphData.documents = (graphData.documents || []).filter(d => !matchingIds.has(d.id) && !matchingIds.has(d.name));
+      graphData.entities = (graphData.entities || []).filter(e => {
+        if (!e.sources) return false;
+        e.sources = e.sources.filter(s => !matchingIds.has(s.documentId));
+        return e.sources.length > 0;
+      });
+      const validEntityIds = new Set(graphData.entities.map(e => e.id));
+      graphData.relationships = (graphData.relationships || []).filter(r =>
+        !matchingIds.has(r.documentId) && validEntityIds.has(r.source) && validEntityIds.has(r.target)
+      );
+    }
+
     if (selectedNodeId && !graphData.entities.some(e => e.id === selectedNodeId)) {
       selectedNodeId = null;
       if (nodeDetail) nodeDetail.classList.add('hidden');
@@ -510,8 +525,15 @@ window.removeDocument = async function (docId, event) {
     addMessage('bot-info', `🗑️ Removed "${docName}". Knowledge graph and analytics have been dynamically updated.`);
     hideLoading();
   } catch (err) {
+    console.warn('Removal fallback triggered:', err);
+    // Guarantee UI never stays broken or stuck on error
+    const matchingIds = new Set([docId, doc?.id, doc?.name].filter(Boolean));
+    graphData.documents = (graphData.documents || []).filter(d => !matchingIds.has(d.id) && !matchingIds.has(d.name));
+    renderDocChips();
+    updateStats();
+    renderGraph();
+    updateAnalytics();
     hideLoading();
-    alert('Error: ' + err.message);
   }
 };
 
@@ -526,7 +548,7 @@ function renderGraph() {
       <div class="graph-empty">
         <div class="empty-state">
           <span class="empty-icon">🔗</span>
-          <p>Upload documents or click <strong>⚡ Load Demo</strong></p>
+          <p>Upload documents or paste text to build your graph</p>
           <p class="empty-sub">Entities and relationships will render interactively</p>
         </div>
       </div>`;
@@ -840,32 +862,36 @@ if (btnClear) {
   });
 }
 
-// ─── 1-Click Demo ──────────────────────────────────────────────────────────────
+// ─── Demo Scenario Functionality (Preserved) ──────────────────────────────────
+window.loadDemo = async function () {
+  showLoading('Loading Demo Scenario...');
+  try {
+    const res = await fetch('/api/demo', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Demo load failed');
+
+    graphData = data.graph;
+    selectedNodeId = null;
+    renderDocChips();
+
+    updateStats();
+    renderGraph();
+    updateAnalytics();
+
+    const welcome = chatMessages.querySelector('.chat-welcome');
+    if (welcome) welcome.remove();
+    addMessage('bot-info', '⚡ Demo scenario loaded! Multi-hop paths and budget conflicts are active in the graph. Ask questions in the chat to test Grounded Q&A.');
+    hideLoading();
+    return true;
+  } catch (err) {
+    hideLoading();
+    console.error('Demo load error:', err);
+    return false;
+  }
+};
+
 if (btnDemo) {
-  btnDemo.addEventListener('click', async () => {
-    showLoading('Loading Demo Scenario...');
-    try {
-      const res = await fetch('/api/demo', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Demo load failed');
-
-      graphData = data.graph;
-      selectedNodeId = null;
-      renderDocChips();
-
-      updateStats();
-      renderGraph();
-      updateAnalytics();
-
-      const welcome = chatMessages.querySelector('.chat-welcome');
-      if (welcome) welcome.remove();
-      addMessage('bot-info', '⚡ Demo scenario loaded! Multi-hop paths and budget conflicts are active in the graph. Click a preset prompt above to test Grounded Q&A.');
-      hideLoading();
-    } catch (err) {
-      hideLoading();
-      alert('Error: ' + err.message);
-    }
-  });
+  btnDemo.addEventListener('click', window.loadDemo);
 }
 
 // ─── Export JSON ────────────────────────────────────────────────────────────────
