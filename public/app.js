@@ -280,8 +280,7 @@ function renderFloatingAnalytics(analytics) {
 
   if (analytics.isEmpty) {
     floatingBody.innerHTML = `
-      <div style="text-align:center; padding:12px 6px; color:var(--text-3); font-size:11px;">
-        <span style="font-size:22px; display:block; margin-bottom:4px; opacity:0.4;">📊</span>
+      <div style="text-align:center; padding:16px 8px; color:var(--text-3); font-size:11px;">
         Upload docs or paste text to populate live graph intelligence.
       </div>`;
     return;
@@ -367,7 +366,6 @@ function renderDockedAnalytics(analytics) {
   if (analytics.isEmpty) {
     dockedGrid.innerHTML = `
       <div style="grid-column: 1 / -1; text-align: center; padding: 28px; color: var(--text-3); font-size: 12px;">
-        <span style="font-size: 32px; display: block; margin-bottom: 8px; opacity: 0.4;">📊</span>
         No graph data loaded. Upload documents or paste raw text to view live structural analytics.
       </div>`;
     return;
@@ -626,7 +624,7 @@ window.removeDocument = async function (docId, event) {
     renderGraph();
     updateAnalytics();
 
-    addMessage('bot-info', `🗑️ Removed "${docName}". Knowledge graph and analytics have been dynamically updated.`);
+    addMessage('bot-info', `Removed "${docName}". Knowledge graph and analytics have been dynamically updated.`);
     hideLoading();
   } catch (err) {
     console.warn('Removal fallback triggered:', err);
@@ -950,7 +948,6 @@ if (btnClear) {
       updateAnalytics();
       chatMessages.innerHTML = `
         <div class="chat-welcome">
-          <div class="welcome-icon">🧠</div>
           <h3>Welcome to GraphMind</h3>
           <p>Upload documents or paste text to extract entities, relationships, and ask questions grounded strictly in your knowledge graph.</p>
         </div>`;
