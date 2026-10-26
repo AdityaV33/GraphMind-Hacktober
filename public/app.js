@@ -308,13 +308,6 @@ function renderFloatingAnalytics(analytics) {
         <div class="kpi-val-mini">${analytics.components.count}</div>
         <div class="kpi-sub-mini">${analytics.degree.isolatedCount} isolated</div>
       </div>
-      <div class="kpi-card-mini">
-        <div class="kpi-label-mini">Quality & Trust</div>
-        <div class="kpi-val-mini" style="color:${analytics.quality.conflictsCount > 0 ? 'var(--gold)' : 'var(--emerald)'}">
-          ${analytics.quality.conflictsCount > 0 ? `⚠️ ${analytics.quality.conflictsCount}` : '✓ Clean'}
-        </div>
-        <div class="kpi-sub-mini">${analytics.quality.sourceCoveragePercent}% cited</div>
-      </div>
     </div>`;
 
   // Entity Type Distribution (Top 4)
@@ -450,32 +443,6 @@ function renderDockedAnalytics(analytics) {
   });
   html += `</div></div>`;
 
-  // Card 4: Knowledge Quality & Evidence
-  const conf = analytics.quality;
-  html += `
-    <div class="docked-card">
-      <div class="docked-card-title">
-        <span>Knowledge Quality & Trust</span>
-        <span class="badge" style="color:${conf.conflictsCount > 0 ? 'var(--gold)' : 'var(--emerald)'}">
-          ${conf.conflictsCount > 0 ? '⚠️ Inconsistencies' : '✓ Verified'}
-        </span>
-      </div>
-      <div class="kpi-row-duo">
-        <div class="kpi-cell">
-          <div class="kpi-cell-val" style="color:${conf.conflictsCount > 0 ? 'var(--gold)' : 'var(--text-1)'}">
-            ${conf.conflictsCount}
-          </div>
-          <div class="kpi-cell-label">Conflicting Facts</div>
-        </div>
-        <div class="kpi-cell">
-          <div class="kpi-cell-val" style="color:var(--emerald)">${conf.sourceCoveragePercent}%</div>
-          <div class="kpi-cell-label">Source Citation Coverage</div>
-        </div>
-      </div>
-      <div style="font-size:10px; color:var(--text-3); margin-top:2px;">
-        Avg ${conf.avgSourcesPerEntity} sources/entity · High Conf: ${analytics.relationshipDistribution.confidenceBreakdown.high} · Med: ${analytics.relationshipDistribution.confidenceBreakdown.medium}
-      </div>
-    </div>`;
 
   // Card 5 (Contextual Node Inspector in Docked Area)
   if (analytics.contextual) {

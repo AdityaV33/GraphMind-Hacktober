@@ -102,13 +102,18 @@ html, body {
   z-index: 50;
 }
 .header-left { display: flex; align-items: center; gap: 18px; }
-.logo { display: flex; align-items: center; gap: 8px; cursor: default; }
-.logo-icon { font-size: 20px; filter: drop-shadow(0 0 10px rgba(226,232,240,0.3)); }
+.logo { display: flex; align-items: center; cursor: default; }
 .logo h1 {
-  font-size: 15px; font-weight: 700; letter-spacing: -0.2px;
-  background: linear-gradient(135deg, #ffffff 30%, #94a3b8 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  font-family: 'Caveat', 'Dancing Script', 'Brush Script MT', cursive;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  background: linear-gradient(135deg, #ffffff 25%, #cbd5e1 75%, #94a3b8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   background-clip: text;
+  filter: drop-shadow(0 0 10px rgba(226, 232, 240, 0.2));
 }
 .stats-bar {
   display: flex; gap: 14px;
@@ -706,7 +711,7 @@ body.is-resizing-row * {
 /* Floating Metrics Grid */
 .floating-kpis {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 .kpi-card-mini {
