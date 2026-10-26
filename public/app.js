@@ -255,7 +255,7 @@ function renderGraph() {
       const positions = network.getPositions(allNodeIds);
       ctx.save();
 
-      // ─── 1. Clean, subtle glowing path edges (NO white lines, NO white dots) ───
+      // ─── 1. Glowing Pulsing Path Edges & Flowing Energy Pulses (Entity Colors, NO White) ───
       if (activePathEdges && activePathEdges.length > 0) {
         for (const edge of activePathEdges) {
           const fromPos = positions[edge.source];
@@ -267,38 +267,79 @@ function renderGraph() {
           const fromCol = TYPE_COLORS[fromEntity?.type] || '#8b5cf6';
           const toCol = TYPE_COLORS[toEntity?.type] || '#8b5cf6';
 
-          // Smooth subtle gradient line along path in entity colors
+          // Gradient beam along path
           const grad = ctx.createLinearGradient(fromPos.x, fromPos.y, toPos.x, toPos.y);
           grad.addColorStop(0, fromCol);
           grad.addColorStop(1, toCol);
 
+          // Pulsing ambient glow beam
+          const beamAlpha = 0.5 + (Math.sin(pulseTime * 4) * 0.2);
           ctx.beginPath();
           ctx.moveTo(fromPos.x, fromPos.y);
           ctx.lineTo(toPos.x, toPos.y);
           ctx.strokeStyle = grad;
-          ctx.lineWidth = 2.5;
+          ctx.globalAlpha = Math.max(0.25, beamAlpha);
+          ctx.lineWidth = 3.5;
           ctx.shadowColor = fromCol;
-          ctx.shadowBlur = 8;
+          ctx.shadowBlur = 12;
           ctx.stroke();
+
+          // Flowing colored energy packet in target entity color
+          const seed = (edge.source.charCodeAt(0) || 1) * 0.15;
+          const progress = ((pulseTime * 1.2) + seed) % 1;
+          const px = fromPos.x + (toPos.x - fromPos.x) * progress;
+          const py = fromPos.y + (toPos.y - fromPos.y) * progress;
+
+          ctx.beginPath();
+          ctx.arc(px, py, 4, 0, 2 * Math.PI);
+          ctx.fillStyle = toCol;
+          ctx.globalAlpha = 0.9;
+          ctx.shadowColor = toCol;
+          ctx.shadowBlur = 10;
+          ctx.fill();
         }
       }
 
-      // ─── 2. Subtle, elegant border glow around entities (matching entity color, NO white) ───
+      // ─── 2. Expanding Pulsing Sonar / Radar Waves Around Entity Borders (Entity Colors, NO White) ───
       for (const id of activePulseNodes) {
         const pos = positions[id];
         if (!pos) continue;
 
         const entity = graphData.entities.find(e => e.id === id);
         const col = TYPE_COLORS[entity?.type] || '#8b5cf6';
-
-        // Gentle breathing pulse (+/- 2px)
-        const breathe = Math.sin(pulseTime * 3) * 2;
         const baseRadius = 18 + Math.min(entity?.sources?.length || 0, 5) * 2;
 
-        // Subtle soft border glow ring matching entity's exact color
+        // Primary expanding sonar wave ring (radiates outward from border)
+        const waveRadius1 = baseRadius + pulseRadius;
+        const waveAlpha1 = Math.max(0, 0.7 - (pulseRadius / 26));
+
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, baseRadius + breathe, 0, 2 * Math.PI);
-        ctx.strokeStyle = hexToRgba(col, 0.45 + (Math.sin(pulseTime * 3) * 0.15));
+        ctx.arc(pos.x, pos.y, waveRadius1, 0, 2 * Math.PI);
+        ctx.strokeStyle = hexToRgba(col, waveAlpha1);
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 14;
+        ctx.stroke();
+
+        // Secondary harmonic trailing pulse wave
+        const trailOffset = Math.max(0, pulseRadius - 8);
+        if (trailOffset > 0) {
+          const waveRadius2 = baseRadius + trailOffset;
+          const waveAlpha2 = Math.max(0, 0.45 - (trailOffset / 20));
+
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, waveRadius2, 0, 2 * Math.PI);
+          ctx.strokeStyle = hexToRgba(col, waveAlpha2);
+          ctx.lineWidth = 1.8;
+          ctx.shadowColor = col;
+          ctx.shadowBlur = 8;
+          ctx.stroke();
+        }
+
+        // Constant glowing border aura right on the entity outline
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, baseRadius + 1.5, 0, 2 * Math.PI);
+        ctx.strokeStyle = hexToRgba(col, 0.6 + (Math.sin(pulseTime * 4) * 0.2));
         ctx.lineWidth = 2;
         ctx.shadowColor = col;
         ctx.shadowBlur = 10;
