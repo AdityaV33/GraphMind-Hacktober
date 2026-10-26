@@ -388,9 +388,26 @@ Respond with valid JSON:
 
 // ─── Parse PDF ─────────────────────────────────────────────────────────────────
 async function parsePDF(buffer) {
-  const pdfParse = require('pdf-parse');
-  const data = await pdfParse(buffer);
-  return data.text;
+  const pdfModule = require('pdf-parse');
+  // Handle pdf-parse v2 (Class PDFParse)
+  if (pdfModule.PDFParse) {
+    const parser = new pdfModule.PDFParse({ data: buffer });
+    const result = await parser.getText();
+    if (typeof parser.destroy === 'function') {
+      await parser.destroy();
+    }
+    return result.text || '';
+  }
+  // Handle pdf-parse v1 (Callable function)
+  if (typeof pdfModule === 'function') {
+    const data = await pdfModule(buffer);
+    return data.text || '';
+  }
+  if (pdfModule.default && typeof pdfModule.default === 'function') {
+    const data = await pdfModule.default(buffer);
+    return data.text || '';
+  }
+  throw new Error('Unsupported pdf-parse module export format');
 }
 
 // ─── API Routes ────────────────────────────────────────────────────────────────
@@ -403,7 +420,13 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
     if (req.file) {
       docName = req.file.originalname;
-      if (req.file.mimetype === 'application/pdf') {
+      const isPdf =
+        req.file.mimetype === 'application/pdf' ||
+        req.file.mimetype === 'application/x-pdf' ||
+        docName.toLowerCase().endsWith('.pdf') ||
+        (req.file.buffer && req.file.buffer.slice(0, 4).toString() === '%PDF');
+
+      if (isPdf) {
         text = await parsePDF(req.file.buffer);
       } else {
         text = req.file.buffer.toString('utf-8');
