@@ -311,11 +311,32 @@ async function sendQuestion() {
     typingEl.remove();
     if (!res.ok) throw new Error(data.error || 'Query failed');
     addBotMessage(data);
+
+    // ─── Automatic Graph Highlighting & Zoom on Reasoning Path ───
+    if (data.highlight_nodes && data.highlight_nodes.length > 0 && network) {
+      highlightGraphNodes(data.highlight_nodes);
+    }
   } catch (err) {
     typingEl.remove();
     addMessage('bot-error', 'Error: ' + err.message);
   }
   scrollChatBottom();
+}
+
+function highlightGraphNodes(nodeIds) {
+  if (!network || !nodeIds || !nodeIds.length) return;
+  try {
+    network.selectNodes(nodeIds, true);
+    network.fit({
+      nodes: nodeIds,
+      animation: {
+        duration: 600,
+        easingFunction: 'easeInOutQuad',
+      },
+    });
+  } catch (err) {
+    console.warn('Could not highlight nodes:', err);
+  }
 }
 
 function addMessage(type, text) {
@@ -336,12 +357,12 @@ function addBotMessage(data) {
   html += `<div class="msg-answer">${escapeHtml(data.answer)}</div>`;
 
   if (data.reasoning_path && data.reasoning_path.length > 0) {
-    html += `<div class="msg-path">`;
+    html += `<div class="msg-path" title="Click any entity to focus in the graph">`;
     data.reasoning_path.forEach(step => {
       if (step.startsWith('→') || step.startsWith('←')) {
         html += `<span class="path-arrow">${escapeHtml(step)}</span>`;
       } else {
-        html += `<span class="path-node">${escapeHtml(step)}</span>`;
+        html += `<span class="path-node" data-node-name="${escapeHtml(step)}" style="cursor: pointer;" title="Click to focus">${escapeHtml(step)}</span>`;
       }
     });
     html += `</div>`;
@@ -365,6 +386,29 @@ function addBotMessage(data) {
   }
 
   div.innerHTML = html;
+
+  // Add click handlers on path nodes to focus on canvas
+  div.querySelectorAll('.path-node').forEach(nodeEl => {
+    nodeEl.addEventListener('click', () => {
+      const name = (nodeEl.getAttribute('data-node-name') || '').toLowerCase().trim();
+      if (!graphData || !graphData.entities) return;
+      const matched = graphData.entities.find(e =>
+        e.name.toLowerCase() === name ||
+        e.id === name ||
+        e.name.toLowerCase().includes(name) ||
+        name.includes(e.name.toLowerCase())
+      );
+      if (matched && network) {
+        network.selectNodes([matched.id], true);
+        network.focus(matched.id, {
+          scale: 1.3,
+          animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+        });
+        showNodeDetail(matched.id);
+      }
+    });
+  });
+
   chatMessages.appendChild(div);
   scrollChatBottom();
 }
