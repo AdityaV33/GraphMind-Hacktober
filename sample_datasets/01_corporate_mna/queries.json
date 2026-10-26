@@ -1,0 +1,21 @@
+[
+  {
+    "type": "multi-hop",
+    "label": "Multi-Hop Traversal",
+    "question": "Which city and state houses the facility holding proprietary patents directed by Dr. Aris Thorne?",
+    "expected_reasoning_path": "Dr. Aris Thorne → Omics Research Laboratory → Cambridge BioHub → Cambridge, Massachusetts",
+    "expected_answer": "Cambridge, Massachusetts"
+  },
+  {
+    "type": "conflict",
+    "label": "Contradiction Detection",
+    "question": "What is the agreed acquisition price for NovaBio Therapeutics across the agreements and audit reports?",
+    "expected_conflict": "$420,000,000 in Merger Term Sheet vs $380,000,000 in Q3 Forensic Audit Report"
+  },
+  {
+    "type": "abstention",
+    "label": "Hallucination Abstention",
+    "question": "What is the exact NASDAQ ticker symbol and IPO date for Apex Holdings?",
+    "expected_response": "Declines / abstains because ticker symbol and IPO date are not mentioned in the source documents."
+  }
+]

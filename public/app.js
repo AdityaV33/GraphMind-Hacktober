@@ -5,6 +5,21 @@ let graphData = { entities: [], relationships: [], documents: [], conflicts: [] 
 let network = null;
 let currentLayout = 'exploration'; // 'exploration' | 'chat-expanded'
 let selectedNodeId = null;
+let activePulseNodes = [];
+let activePathEdges = [];
+let pulseAnimFrame = null;
+let pulseRadius = 0;
+let pulseTime = 0;
+
+function hexToRgba(hex, alpha = 1) {
+  if (!hex || typeof hex !== 'string') return `rgba(139, 92, 246, ${alpha})`;
+  if (hex.startsWith('rgb')) return hex;
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16) || 139;
+  const g = parseInt(clean.substring(2, 4), 16) || 92;
+  const b = parseInt(clean.substring(4, 6), 16) || 246;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 // ─── Entity Type Colors & Shapes ───────────────────────────────────────────────
 const TYPE_COLORS = {
@@ -695,21 +710,31 @@ function renderGraph() {
   }
 
   // Nodes
-  const nodes = new vis.DataSet(graphData.entities.map(e => ({
-    id: e.id,
-    label: e.name,
-    color: {
-      background: TYPE_COLORS[e.type] || TYPE_COLORS.unknown,
-      border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown,
-      highlight: { background: '#ffffff', border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown },
-      hover: { background: lightenColor(TYPE_COLORS[e.type] || TYPE_COLORS.unknown, 25), border: TYPE_COLORS[e.type] || TYPE_COLORS.unknown },
-    },
-    shape: TYPE_SHAPES[e.type] || 'dot',
-    size: 16 + Math.min(e.sources?.length || 0, 5) * 3,
-    font: { color: '#f3f4f8', size: 11, face: 'Inter, sans-serif', strokeWidth: 3, strokeColor: '#080a0f' },
-    borderWidth: 2,
-    shadow: { enabled: true, color: TYPE_COLORS[e.type] || TYPE_COLORS.unknown, size: 7, x: 0, y: 0 },
-  })));
+  const nodes = new vis.DataSet(graphData.entities.map(e => {
+    const col = TYPE_COLORS[e.type] || TYPE_COLORS.unknown;
+    return {
+      id: e.id,
+      label: e.name,
+      color: {
+        background: col,
+        border: col,
+        highlight: {
+          background: col,
+          border: lightenColor(col, 40),
+        },
+        hover: {
+          background: lightenColor(col, 20),
+          border: lightenColor(col, 40),
+        },
+      },
+      shape: TYPE_SHAPES[e.type] || 'dot',
+      size: 16 + Math.min(e.sources?.length || 0, 5) * 3,
+      font: { color: '#f3f4f8', size: 11, face: 'Inter, sans-serif', strokeWidth: 3, strokeColor: '#080a0f' },
+      borderWidth: 2,
+      borderWidthSelected: 3,
+      shadow: { enabled: true, color: col, size: 8, x: 0, y: 0 },
+    };
+  }));
 
   // Edges
   const edges = new vis.DataSet(graphData.relationships.map((r, i) => {
@@ -746,6 +771,143 @@ function renderGraph() {
   network = new vis.Network(container, { nodes, edges }, options);
   window.network = network;
 
+  // ─── Subtle Entity-Colored Border Glow & Path Accent ───
+  network.on('afterDrawing', (ctx) => {
+    if ((!activePulseNodes || activePulseNodes.length === 0) && (!activePathEdges || activePathEdges.length === 0)) return;
+    try {
+      const allNodeIds = Array.from(new Set([
+        ...(activePulseNodes || []),
+        ...(activePathEdges || []).flatMap(e => [e.source, e.target])
+      ]));
+      const positions = network.getPositions(allNodeIds);
+      ctx.save();
+
+      // ─── 1. Glowing Pulsing Path Edges Following Exact Vis.js Curves ───
+      if (activePathEdges && activePathEdges.length > 0) {
+        for (const edge of activePathEdges) {
+          const fromPos = positions[edge.source];
+          const toPos = positions[edge.target];
+          if (!fromPos || !toPos) continue;
+
+          const fromEntity = graphData.entities.find(e => e.id === edge.source);
+          const toEntity = graphData.entities.find(e => e.id === edge.target);
+          const fromCol = TYPE_COLORS[fromEntity?.type] || '#8b5cf6';
+          const toCol = TYPE_COLORS[toEntity?.type] || '#8b5cf6';
+
+          // Look up Vis.js internal edge instance to get exact curve coordinates
+          let visEdge = (network && network.body && network.body.edges) ? network.body.edges[edge.id] : null;
+          if (!visEdge && network && network.body && network.body.edges) {
+            for (const k in network.body.edges) {
+              const eObj = network.body.edges[k];
+              if ((eObj.fromId === edge.source && eObj.toId === edge.target) ||
+                  (eObj.fromId === edge.target && eObj.toId === edge.source)) {
+                visEdge = eObj;
+                break;
+              }
+            }
+          }
+
+          const edgeType = visEdge ? visEdge.edgeType : null;
+          const fromPt = (edgeType && edgeType.fromPoint) ? edgeType.fromPoint : fromPos;
+          const toPt = (edgeType && edgeType.toPoint) ? edgeType.toPoint : toPos;
+          const via = edgeType ? (edgeType.via || (typeof edgeType._getViaCoordinates === 'function' ? edgeType._getViaCoordinates() : null)) : null;
+
+          // Gradient beam along path
+          const grad = ctx.createLinearGradient(fromPt.x, fromPt.y, toPt.x, toPt.y);
+          grad.addColorStop(0, fromCol);
+          grad.addColorStop(1, toCol);
+
+          // Pulsing ambient glow beam along exact curve
+          const beamAlpha = 0.5 + (Math.sin(pulseTime * 4) * 0.2);
+          ctx.beginPath();
+          ctx.moveTo(fromPt.x, fromPt.y);
+          if (via && typeof via.x === 'number') {
+            ctx.quadraticCurveTo(via.x, via.y, toPt.x, toPt.y);
+          } else {
+            ctx.lineTo(toPt.x, toPt.y);
+          }
+          ctx.strokeStyle = grad;
+          ctx.globalAlpha = Math.max(0.25, beamAlpha);
+          ctx.lineWidth = 3.5;
+          ctx.shadowColor = fromCol;
+          ctx.shadowBlur = 12;
+          ctx.stroke();
+
+          // Flowing colored energy packet in target entity color along exact curve
+          const seed = (edge.source.charCodeAt(0) || 1) * 0.15;
+          const progress = ((pulseTime * 1.2) + seed) % 1;
+          let px, py;
+          if (via && typeof via.x === 'number') {
+            const mt = 1 - progress;
+            px = mt * mt * fromPt.x + 2 * mt * progress * via.x + progress * progress * toPt.x;
+            py = mt * mt * fromPt.y + 2 * mt * progress * via.y + progress * progress * toPt.y;
+          } else {
+            px = fromPt.x + (toPt.x - fromPt.x) * progress;
+            py = fromPt.y + (toPt.y - fromPt.y) * progress;
+          }
+
+          ctx.beginPath();
+          ctx.arc(px, py, 4, 0, 2 * Math.PI);
+          ctx.fillStyle = toCol;
+          ctx.globalAlpha = 0.9;
+          ctx.shadowColor = toCol;
+          ctx.shadowBlur = 10;
+          ctx.fill();
+        }
+      }
+
+      // ─── 2. Expanding Pulsing Sonar / Radar Waves Around Entity Borders (Entity Colors, NO White) ───
+      for (const id of activePulseNodes) {
+        const pos = positions[id];
+        if (!pos) continue;
+
+        const entity = graphData.entities.find(e => e.id === id);
+        const col = TYPE_COLORS[entity?.type] || '#8b5cf6';
+        const baseRadius = 18 + Math.min(entity?.sources?.length || 0, 5) * 2;
+
+        // Primary expanding sonar wave ring (radiates outward from border)
+        const waveRadius1 = baseRadius + pulseRadius;
+        const waveAlpha1 = Math.max(0, 0.7 - (pulseRadius / 26));
+
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, waveRadius1, 0, 2 * Math.PI);
+        ctx.strokeStyle = hexToRgba(col, waveAlpha1);
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 14;
+        ctx.stroke();
+
+        // Secondary harmonic trailing pulse wave
+        const trailOffset = Math.max(0, pulseRadius - 8);
+        if (trailOffset > 0) {
+          const waveRadius2 = baseRadius + trailOffset;
+          const waveAlpha2 = Math.max(0, 0.45 - (trailOffset / 20));
+
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, waveRadius2, 0, 2 * Math.PI);
+          ctx.strokeStyle = hexToRgba(col, waveAlpha2);
+          ctx.lineWidth = 1.8;
+          ctx.shadowColor = col;
+          ctx.shadowBlur = 8;
+          ctx.stroke();
+        }
+
+        // Constant glowing border aura right on the entity outline
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, baseRadius + 1.5, 0, 2 * Math.PI);
+        ctx.strokeStyle = hexToRgba(col, 0.6 + (Math.sin(pulseTime * 4) * 0.2));
+        ctx.lineWidth = 2;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 10;
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    } catch (e) {
+      // ignore transient render frame errors
+    }
+  });
+
   network.once('stabilizationIterationsDone', () => {
     network.fit({ animation: { duration: 300, easingFunction: 'easeInOutQuad' } });
   });
@@ -758,6 +920,7 @@ function renderGraph() {
     } else {
       selectedNodeId = null;
       if (nodeDetail) nodeDetail.classList.add('hidden');
+      stopPulseLoop();
       updateAnalytics();
     }
   });
@@ -880,11 +1043,88 @@ async function sendQuestion() {
     typingEl.remove();
     if (!res.ok) throw new Error(data.error || 'Query failed');
     addBotMessage(data);
+
+    // ─── Automatic Graph Highlighting & Zoom on Reasoning Path ───
+    if (data.highlight_nodes && data.highlight_nodes.length > 0 && network) {
+      highlightGraphNodes(data.highlight_nodes);
+    }
   } catch (err) {
     typingEl.remove();
     addMessage('bot-error', 'Error: ' + err.message);
   }
   scrollChatBottom();
+}
+
+function startPulseLoop() {
+  if (pulseAnimFrame) cancelAnimationFrame(pulseAnimFrame);
+  const startTime = Date.now();
+  function pulseTick() {
+    if ((!activePulseNodes || activePulseNodes.length === 0) && (!activePathEdges || activePathEdges.length === 0)) return;
+    const now = Date.now();
+    pulseTime = (now - startTime) / 1000;
+    const elapsed = (now - startTime) % 1500;
+    pulseRadius = (elapsed / 1500) * 22; // 0 to 22px expansion
+    if (network) network.redraw();
+    pulseAnimFrame = requestAnimationFrame(pulseTick);
+  }
+  pulseAnimFrame = requestAnimationFrame(pulseTick);
+}
+
+function stopPulseLoop() {
+  activePulseNodes = [];
+  activePathEdges = [];
+  if (pulseAnimFrame) {
+    cancelAnimationFrame(pulseAnimFrame);
+    pulseAnimFrame = null;
+  }
+  if (network) network.redraw();
+}
+
+function highlightGraphNodes(nodeIds) {
+  if (!network || !nodeIds || !nodeIds.length) return;
+  try {
+    activePulseNodes = [...nodeIds];
+
+    // Collect all edges that connect nodes within the reasoning path
+    activePathEdges = (graphData.relationships || []).map((r, i) => ({
+      ...r,
+      id: r.id || `edge_${i}`
+    })).filter(r =>
+      nodeIds.includes(r.source) && nodeIds.includes(r.target)
+    );
+
+    startPulseLoop();
+
+    // ─── Step-by-Step Traversal Animation (Hops light up in sequence) ───
+    nodeIds.forEach((nodeId, idx) => {
+      setTimeout(() => {
+        if (!network) return;
+        const currentHop = nodeIds.slice(0, idx + 1);
+        network.selectNodes(currentHop, true);
+      }, idx * 260);
+    });
+
+    // ─── Smooth Camera Glide Framing the Entire Path ───
+    const fitDelay = nodeIds.length * 260 + 120;
+    setTimeout(() => {
+      if (!network) return;
+      network.selectNodes(nodeIds, true);
+      network.fit({
+        nodes: nodeIds,
+        animation: {
+          duration: 750,
+          easingFunction: 'easeInOutQuad',
+        },
+      });
+    }, fitDelay);
+
+    // Auto-dim pulse after 9.5 seconds
+    setTimeout(() => {
+      stopPulseLoop();
+    }, 9500);
+  } catch (err) {
+    console.warn('Could not animate highlighted nodes:', err);
+  }
 }
 
 function addMessage(type, text) {
@@ -905,12 +1145,32 @@ function addBotMessage(data) {
   html += `<div class="msg-answer">${escapeHtml(data.answer)}</div>`;
 
   if (data.reasoning_path && data.reasoning_path.length > 0) {
-    html += `<div class="msg-path">`;
+    html += `<div class="msg-path" title="Click any entity to focus in the graph">`;
+    let nodeIndex = 0;
     data.reasoning_path.forEach(step => {
       if (step.startsWith('→') || step.startsWith('←')) {
-        html += `<span class="path-arrow">${escapeHtml(step)}</span>`;
+        const arrowDelay = (nodeIndex * 0.22).toFixed(2);
+        html += `<span class="path-arrow" style="animation-delay: ${arrowDelay}s">${escapeHtml(step)}</span>`;
       } else {
-        html += `<span class="path-node">${escapeHtml(step)}</span>`;
+        const delay = (nodeIndex * 0.22).toFixed(2);
+        const nameClean = step.toLowerCase().trim();
+        const entity = (graphData && graphData.entities)
+          ? graphData.entities.find(e =>
+              e.name.toLowerCase() === nameClean ||
+              e.id === nameClean ||
+              e.name.toLowerCase().includes(nameClean) ||
+              nameClean.includes(e.name.toLowerCase())
+            )
+          : null;
+        const color = entity ? (TYPE_COLORS[entity.type] || '#8b5cf6') : '#8b5cf6';
+        const bgRgba = hexToRgba(color, 0.16);
+        const borderRgba = hexToRgba(color, 0.48);
+        const glowRgba = hexToRgba(color, 0.65);
+
+        html += `<span class="path-node path-node-animated" data-node-name="${escapeHtml(step)}"
+          style="animation-delay: ${delay}s; color: ${color}; background: ${bgRgba}; border-color: ${borderRgba}; --node-glow: ${glowRgba}; cursor: pointer;"
+          title="Click to focus in graph">${escapeHtml(step)}</span>`;
+        nodeIndex++;
       }
     });
     html += `</div>`;
@@ -934,6 +1194,29 @@ function addBotMessage(data) {
   }
 
   div.innerHTML = html;
+
+  // Add click handlers on path nodes to focus on canvas
+  div.querySelectorAll('.path-node').forEach(nodeEl => {
+    nodeEl.addEventListener('click', () => {
+      const name = (nodeEl.getAttribute('data-node-name') || '').toLowerCase().trim();
+      if (!graphData || !graphData.entities) return;
+      const matched = graphData.entities.find(e =>
+        e.name.toLowerCase() === name ||
+        e.id === name ||
+        e.name.toLowerCase().includes(name) ||
+        name.includes(e.name.toLowerCase())
+      );
+      if (matched && network) {
+        network.selectNodes([matched.id], true);
+        network.focus(matched.id, {
+          scale: 1.3,
+          animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+        });
+        showNodeDetail(matched.id);
+      }
+    });
+  });
+
   chatMessages.appendChild(div);
   scrollChatBottom();
 }

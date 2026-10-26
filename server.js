@@ -111,6 +111,14 @@ async function callGemini(prompt, retries = 2) {
   }
 }
 
+function normalizeEntityName(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/^(dr\.|doctor|prof\.|professor|mr\.|mrs\.|ms\.)\s+/i, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
 // ─── In-Memory Knowledge Graph ─────────────────────────────────────────────────
 const knowledgeGraph = {
   entities: new Map(),   // id -> { id, name, type, description, sources: [] }
@@ -122,21 +130,40 @@ const knowledgeGraph = {
   },
 
   addEntity(entity, documentId) {
-    const existing = this.entities.get(entity.id);
-    if (existing) {
-      // Merge sources
-      existing.sources.push({ documentId, sourceText: entity.sourceText || '' });
-      if (entity.description && !existing.description) {
-        existing.description = entity.description;
+    if (!entity || !entity.id) return null;
+
+    // 1. Direct ID match
+    let canonical = this.entities.get(entity.id);
+
+    // 2. Normalized name match if not found by exact ID
+    if (!canonical) {
+      const normNew = normalizeEntityName(entity.name || entity.id);
+      if (normNew.length > 2) {
+        for (const [existingId, existing] of this.entities) {
+          if (normalizeEntityName(existing.name) === normNew || normalizeEntityName(existingId) === normNew) {
+            canonical = existing;
+            break;
+          }
+        }
       }
+    }
+
+    if (canonical) {
+      // Merge sources and description across documents
+      canonical.sources.push({ documentId, sourceText: entity.sourceText || '' });
+      if (entity.description && !canonical.description) {
+        canonical.description = entity.description;
+      }
+      return canonical.id;
     } else {
       this.entities.set(entity.id, {
         id: entity.id,
-        name: entity.name,
+        name: entity.name || entity.id,
         type: entity.type || 'unknown',
         description: entity.description || '',
         sources: [{ documentId, sourceText: entity.sourceText || '' }],
       });
+      return entity.id;
     }
   },
 
@@ -201,6 +228,36 @@ const knowledgeGraph = {
     }
 
     return { entities, relationships: relevantRels };
+  },
+
+  // Shortest path between two entities (BFS, up to maxDepth hops)
+  findPath(startId, endId, maxDepth = 6) {
+    if (startId === endId) return [startId];
+    const visited = new Set([startId]);
+    const queue = [[startId]];
+
+    while (queue.length > 0) {
+      const path = queue.shift();
+      const current = path[path.length - 1];
+      if (path.length > maxDepth) continue;
+
+      for (const rel of this.relationships) {
+        let neighbor = null;
+        if (rel.source === current) neighbor = rel.target;
+        else if (rel.target === current) neighbor = rel.source;
+
+        if (neighbor) {
+          if (neighbor === endId) {
+            return [...path, endId];
+          }
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            queue.push([...path, neighbor]);
+          }
+        }
+      }
+    }
+    return null;
   },
 
   // Detect conflicting facts about same entity pair
@@ -393,11 +450,16 @@ function chunkText(text, maxChunkSize = 25000, overlap = 1500) {
 }
 
 // ─── Extraction Prompt ─────────────────────────────────────────────────────────
-function buildExtractionPrompt(text, documentName) {
+function buildExtractionPrompt(text, documentName, existingEntities = []) {
+  const existingSection = (existingEntities && existingEntities.length > 0)
+    ? `\nEXISTING ENTITIES ALREADY IN KNOWLEDGE GRAPH (Reuse these exact IDs when mentioned):
+${existingEntities.slice(0, 40).map(e => `- ID: "${e.id}", Name: "${e.name}" (${e.type})`).join('\n')}\n`
+    : '';
+
   return `You are an entity and relationship extractor. Analyze this document and extract ALL entities (people, teams, organizations, events, places, resources, concepts) and their relationships.
 
 DOCUMENT NAME: "${documentName}"
-DOCUMENT TEXT:
+${existingSection}DOCUMENT TEXT:
 """
 ${text.slice(0, 35000)}
 """
@@ -426,7 +488,8 @@ Respond ONLY with valid JSON matching this exact schema (no markdown, no explana
 
 RULES:
 - Entity IDs must be lowercase_snake_case
-- Every relationship source/target MUST reference an entity ID from your entities list
+- IMPORTANT CROSS-DOCUMENT LINKING: If the text refers to any entity in the EXISTING ENTITIES list, you MUST use that entity's exact ID so relationships connect to the existing graph!
+- Every relationship source/target MUST reference an entity ID from your entities list or the EXISTING ENTITIES list
 - sourceText must be EXACT quotes from the document, not paraphrased
 - Only extract relationships explicitly stated or strongly implied in the text
 - Do NOT fabricate or infer relationships not supported by the text
@@ -571,19 +634,36 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         console.log(`🔍 Extracting chunk ${i + 1}/${maxChunks} (${chunk.length} chars)...`);
       }
 
-      const prompt = buildExtractionPrompt(chunk, chunkLabel);
+      // Provide known entities so Gemini connects relationships across documents
+      const knownEntities = Array.from(knowledgeGraph.entities.values()).map(e => ({
+        id: e.id,
+        name: e.name,
+        type: e.type,
+      }));
+
+      const prompt = buildExtractionPrompt(chunk, chunkLabel, knownEntities);
       try {
         const response = await callGemini(prompt);
         const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         const extracted = JSON.parse(cleaned);
 
+        const idMap = new Map();
         for (const entity of (extracted.entities || [])) {
-          knowledgeGraph.addEntity(entity, docId);
-          entityCount++;
+          const canonicalId = knowledgeGraph.addEntity(entity, docId);
+          if (canonicalId) {
+            idMap.set(entity.id, canonicalId);
+            entityCount++;
+          }
         }
         for (const rel of (extracted.relationships || [])) {
-          if (knowledgeGraph.entities.has(rel.source) && knowledgeGraph.entities.has(rel.target)) {
-            knowledgeGraph.addRelationship(rel, docId);
+          const resolvedSource = idMap.get(rel.source) || rel.source;
+          const resolvedTarget = idMap.get(rel.target) || rel.target;
+          if (knowledgeGraph.entities.has(resolvedSource) && knowledgeGraph.entities.has(resolvedTarget)) {
+            knowledgeGraph.addRelationship({
+              ...rel,
+              source: resolvedSource,
+              target: resolvedTarget,
+            }, docId);
             relCount++;
           }
         }
@@ -647,9 +727,21 @@ app.post('/api/query', async (req, res) => {
     let entityIds = Array.from(matchedEntities);
     if (entityIds.length === 0) {
       entityIds = Array.from(knowledgeGraph.entities.keys()).slice(0, 20);
+    } else if (entityIds.length >= 2) {
+      // Find hidden 3rd-party intermediary bridges between mentioned topics
+      const bridgeNodes = new Set(entityIds);
+      for (let i = 0; i < entityIds.length; i++) {
+        for (let j = i + 1; j < entityIds.length; j++) {
+          const path = knowledgeGraph.findPath(entityIds[i], entityIds[j], 6);
+          if (path && path.length > 2) {
+            path.forEach(nodeId => bridgeNodes.add(nodeId));
+          }
+        }
+      }
+      entityIds = Array.from(bridgeNodes);
     }
 
-    // Get subgraph with 2-hop neighborhood
+    // Get subgraph with 2-hop neighborhood around all entities and intermediary bridges
     const subgraph = knowledgeGraph.getSubgraph(entityIds, 2);
     const conflicts = knowledgeGraph.findConflicts(entityIds);
 
@@ -673,10 +765,173 @@ app.post('/api/query', async (req, res) => {
       };
     }
 
+    // Automatically match entity IDs involved in the reasoning path, citations, or answer text
+    const highlightNodeIds = new Set();
+    const textPool = [
+      ...(Array.isArray(answer.reasoning_path) ? answer.reasoning_path : []),
+      ...(Array.isArray(answer.citations) ? answer.citations.map(c => `${c.fact || ''} ${c.quote || ''}`) : []),
+      typeof answer.answer === 'string' ? answer.answer : ''
+    ].join(' ').toLowerCase();
+
+    for (const [id, entity] of knowledgeGraph.entities) {
+      const eName = (entity.name || '').toLowerCase();
+      if (eName && eName.length > 2 && textPool.includes(eName)) {
+        highlightNodeIds.add(id);
+      }
+    }
+    answer.highlight_nodes = Array.from(highlightNodeIds);
+
     res.json(answer);
   } catch (err) {
     console.error('Query error:', err);
     res.status(500).json({ error: err.message || 'Query failed' });
+  }
+});
+
+// ─── Executive Synthesis Briefing ──────────────────────────────────────────────
+app.get('/api/summary', async (req, res) => {
+  try {
+    if (knowledgeGraph.entities.size === 0) {
+      return res.json({
+        success: false,
+        message: 'No documents or graph in memory yet. Please upload documents or load the demo dataset first.',
+        summary: '# Executive Briefing\n\nNo documents have been loaded into the knowledge graph yet.'
+      });
+    }
+
+    const graphData = knowledgeGraph.toJSON();
+    const docNames = graphData.documents.map(d => d.name).join(', ') || 'Uploaded Documents';
+
+    // Calculate top hubs by degree (most connected entities)
+    const degreeMap = new Map();
+    for (const rel of graphData.relationships) {
+      degreeMap.set(rel.source, (degreeMap.get(rel.source) || 0) + 1);
+      degreeMap.set(rel.target, (degreeMap.get(rel.target) || 0) + 1);
+    }
+    const topHubs = Array.from(degreeMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id, degree]) => {
+        const entity = knowledgeGraph.entities.get(id);
+        return `${entity?.name || id} (${entity?.type || 'entity'}, ${degree} connections)`;
+      });
+
+    const prompt = `You are a strategic intelligence analyst and enterprise knowledge auditor.
+Analyze the following multi-document knowledge graph and provide a high-impact, professional Executive Intelligence Briefing in clean GitHub-flavored Markdown.
+
+GRAPH METRICS:
+- Ingested Documents (${graphData.documents.length}): ${docNames}
+- Total Extracted Entities: ${graphData.entities.length}
+- Total Relationships: ${graphData.relationships.length}
+- Central Knowledge Hubs: ${topHubs.join('; ') || 'None identified'}
+
+CROSS-DOCUMENT CONFLICTS DETECTED (${graphData.conflicts.length}):
+${graphData.conflicts.length > 0 ? JSON.stringify(graphData.conflicts, null, 2) : 'No direct factual conflicts detected across ingested documents.'}
+
+CORE ENTITIES & RELATIONSHIPS SAMPLE:
+${graphData.relationships.slice(0, 30).map(r => {
+  const s = knowledgeGraph.entities.get(r.source)?.name || r.source;
+  const t = knowledgeGraph.entities.get(r.target)?.name || r.target;
+  return `- ${s} -> [${r.relation}] -> ${t} (Source: ${knowledgeGraph.documents.get(r.documentId)?.name || 'doc'})`;
+}).join('\n')}
+
+Format your briefing with these exact Markdown headers:
+# 📊 Executive Intelligence Briefing
+
+## 1. Domain & Knowledge Landscape Overview
+(2-3 sentences summarizing the scope and domain covered by the documents)
+
+## 2. Key Operational Hubs & Central Figures
+(Bullet points detailing the most influential entities and their role in the ecosystem)
+
+## 3. Critical Contradictions & Audit Discrepancies
+(Detailed breakdown of any cross-document contradictions with citations, or explicit confirmation of cross-document consistency)
+
+## 4. Risk Assessment & Strategic Blind Spots
+(Vulnerabilities, single points of failure, or ungrounded areas in the knowledge graph)
+
+## 5. Strategic Recommendations
+(3-4 prioritized, actionable bullet points for decision-makers)
+
+Respond ONLY with the Markdown content. Do not enclose in json.`;
+
+    const response = await callGemini(prompt);
+    const cleanedMarkdown = response.replace(/^```markdown\n?/i, '').replace(/```\n?$/i, '').trim();
+
+    res.json({
+      success: true,
+      summary: cleanedMarkdown,
+      stats: {
+        documents: graphData.documents.length,
+        entities: graphData.entities.length,
+        relationships: graphData.relationships.length,
+        conflicts: graphData.conflicts.length,
+        topHubs
+      }
+    });
+  } catch (err) {
+    console.error('Summary error:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate briefing' });
+  }
+});
+
+// ─── Export Knowledge Graph ───────────────────────────────────────────────────
+app.get('/api/export', (req, res) => {
+  try {
+    const exportPayload = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      ...knowledgeGraph.toJSON()
+    };
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="graphmind_knowledge_graph.json"');
+    res.send(JSON.stringify(exportPayload, null, 2));
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Export failed' });
+  }
+});
+
+// ─── Import Knowledge Graph ───────────────────────────────────────────────────
+app.post('/api/import', (req, res) => {
+  try {
+    const data = req.body;
+    if (!data || (!data.entities && !data.relationships)) {
+      return res.status(400).json({ error: 'Invalid graph format. Expected entities and relationships.' });
+    }
+
+    knowledgeGraph.clear();
+
+    if (Array.isArray(data.documents)) {
+      data.documents.forEach(doc => {
+        knowledgeGraph.addDocument(doc.id, doc.name, doc.content || '');
+      });
+    }
+
+    if (Array.isArray(data.entities)) {
+      data.entities.forEach(ent => {
+        knowledgeGraph.addEntity(ent, ent.documentId || 'imported_doc');
+      });
+    }
+
+    if (Array.isArray(data.relationships)) {
+      data.relationships.forEach(rel => {
+        knowledgeGraph.addRelationship(rel, rel.documentId || 'imported_doc');
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Graph imported successfully',
+      imported: {
+        documents: knowledgeGraph.documents.size,
+        entities: knowledgeGraph.entities.size,
+        relationships: knowledgeGraph.relationships.length
+      },
+      graph: knowledgeGraph.toJSON()
+    });
+  } catch (err) {
+    console.error('Import error:', err);
+    res.status(500).json({ error: err.message || 'Import failed' });
   }
 });
 
