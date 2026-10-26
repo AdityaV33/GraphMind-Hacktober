@@ -239,12 +239,47 @@ const knowledgeGraph = {
     return union.size === 0 ? 0 : intersection.size / union.size;
   },
 
-  // Export for visualization
+  // Export for visualization with conflict annotations
   toJSON() {
+    const pairMap = new Map();
+    for (const rel of this.relationships) {
+      const key = [rel.source, rel.target].sort().join('::');
+      if (!pairMap.has(key)) pairMap.set(key, []);
+      pairMap.get(key).push(rel);
+    }
+
+    const conflictKeys = new Set();
+    const allConflicts = [];
+    for (const [key, rels] of pairMap) {
+      if (rels.length > 1) {
+        const relations = new Set(rels.map(r => r.relation));
+        if (relations.size > 1) {
+          conflictKeys.add(key);
+          allConflicts.push({
+            entities: key.split('::'),
+            claims: rels.map(r => ({
+              relation: r.relation,
+              sourceText: r.sourceText,
+              document: this.documents.get(r.documentId)?.name || r.documentId,
+            })),
+          });
+        }
+      }
+    }
+
+    const annotatedRels = this.relationships.map(rel => {
+      const key = [rel.source, rel.target].sort().join('::');
+      return {
+        ...rel,
+        isConflict: conflictKeys.has(key),
+      };
+    });
+
     return {
       entities: Array.from(this.entities.values()),
-      relationships: this.relationships,
+      relationships: annotatedRels,
       documents: Array.from(this.documents.values()),
+      conflicts: allConflicts,
     };
   },
 
@@ -501,6 +536,96 @@ app.post('/api/query', async (req, res) => {
     console.error('Query error:', err);
     res.status(500).json({ error: err.message || 'Query failed' });
   }
+});
+
+// ─── 1-Click Judge-Proof Demo Scenario ─────────────────────────────────────────
+app.post('/api/demo', (req, res) => {
+  knowledgeGraph.clear();
+
+  const doc1Id = 'doc_alpha_charter';
+  const doc1Name = 'Project Alpha Charter.md';
+  const doc1Content = `Project Alpha is led by Sarah Jenkins, who acts as Team Lead.
+Engineering Alpha is the primary unit executing Project Alpha and is allocated the Apollo Computing Cluster for intensive AI simulation workloads.
+The Apollo Computing Cluster is physically housed in Server Room 4B within the Zurich Data Facility.
+According to the initial Q1 allocation, Project Alpha operates on an approved budget of $120,000.`;
+
+  const doc2Id = 'doc_audit_report';
+  const doc2Name = 'Executive Audit & Operations Report.pdf';
+  const doc2Content = `Sarah Jenkins will represent the engineering unit at the Global Tech Summit in Geneva.
+The Global Tech Summit is hosted in Geneva, Switzerland.
+Chief Architect Marcus Vance oversees all deployment pipelines running on the Apollo Computing Cluster.
+Following the mid-year executive audit, Project Alpha operates on an approved budget of $180,000.
+The Quantum Computing Sandbox is hosted on the Hyperion Supercomputer at Oak Ridge.`;
+
+  knowledgeGraph.addDocument(doc1Id, doc1Name, doc1Content);
+  knowledgeGraph.addDocument(doc2Id, doc2Name, doc2Content);
+
+  // Entities
+  const demoEntities = [
+    { id: 'sarah_jenkins', name: 'Sarah Jenkins', type: 'person', description: 'Team Lead for Project Alpha', sourceText: 'Sarah Jenkins, who acts as Team Lead' },
+    { id: 'project_alpha', name: 'Project Alpha', type: 'team', description: 'Core strategic AI initiative', sourceText: 'Project Alpha is led by Sarah Jenkins' },
+    { id: 'engineering_alpha', name: 'Engineering Alpha', type: 'team', description: 'Primary engineering execution unit', sourceText: 'Engineering Alpha is the primary unit executing Project Alpha' },
+    { id: 'apollo_cluster', name: 'Apollo Computing Cluster', type: 'resource', description: 'High-performance AI compute cluster', sourceText: 'allocated the Apollo Computing Cluster for intensive AI simulation workloads' },
+    { id: 'server_room_4b', name: 'Server Room 4B', type: 'place', description: 'Physical datacenter room in Zurich', sourceText: 'physically housed in Server Room 4B within the Zurich Data Facility' },
+    { id: 'global_tech_summit', name: 'Global Tech Summit', type: 'event', description: 'Annual international technology summit', sourceText: 'represent the engineering unit at the Global Tech Summit in Geneva' },
+    { id: 'geneva', name: 'Geneva', type: 'place', description: 'Host city in Switzerland', sourceText: 'hosted in Geneva, Switzerland' },
+    { id: 'marcus_vance', name: 'Marcus Vance', type: 'person', description: 'Chief Architect overseeing deployments', sourceText: 'Chief Architect Marcus Vance oversees all deployment pipelines' },
+    { id: 'budget_spec', name: 'Project Alpha Budget', type: 'resource', description: 'Operating expenditure budget for Project Alpha', sourceText: 'operates on an approved budget' },
+    { id: 'quantum_sandbox', name: 'Quantum Sandbox', type: 'resource', description: 'Experimental quantum computing sandbox', sourceText: 'Quantum Computing Sandbox is hosted on the Hyperion Supercomputer' },
+    { id: 'hyperion', name: 'Hyperion Supercomputer', type: 'resource', description: 'Supercomputer located at Oak Ridge', sourceText: 'Hyperion Supercomputer at Oak Ridge' },
+  ];
+
+  demoEntities.forEach(e => {
+    const docId = (e.id === 'global_tech_summit' || e.id === 'geneva' || e.id === 'marcus_vance' || e.id === 'quantum_sandbox' || e.id === 'hyperion')
+      ? doc2Id : doc1Id;
+    knowledgeGraph.addEntity(e, docId);
+  });
+
+  // Relationships (including multi-hop and explicit conflict)
+  const demoRels = [
+    { source: 'sarah_jenkins', target: 'project_alpha', relation: 'leads', confidence: 'high', sourceText: 'Project Alpha is led by Sarah Jenkins', documentId: doc1Id },
+    { source: 'sarah_jenkins', target: 'engineering_alpha', relation: 'manages', confidence: 'high', sourceText: 'Sarah Jenkins, who acts as Team Lead... Engineering Alpha is the primary unit', documentId: doc1Id },
+    { source: 'engineering_alpha', target: 'apollo_cluster', relation: 'allocated_resource', confidence: 'high', sourceText: 'Engineering Alpha is allocated the Apollo Computing Cluster', documentId: doc1Id },
+    { source: 'apollo_cluster', target: 'server_room_4b', relation: 'located_in', confidence: 'high', sourceText: 'physically housed in Server Room 4B within the Zurich Data Facility', documentId: doc1Id },
+    { source: 'sarah_jenkins', target: 'global_tech_summit', relation: 'attending_speaker', confidence: 'high', sourceText: 'Sarah Jenkins will represent the engineering unit at the Global Tech Summit', documentId: doc2Id },
+    { source: 'global_tech_summit', target: 'geneva', relation: 'held_at', confidence: 'high', sourceText: 'Global Tech Summit is hosted in Geneva, Switzerland', documentId: doc2Id },
+    { source: 'marcus_vance', target: 'apollo_cluster', relation: 'oversees_pipelines_on', confidence: 'high', sourceText: 'Marcus Vance oversees all deployment pipelines running on the Apollo Computing Cluster', documentId: doc2Id },
+    // CONFLICT: Project Alpha Budget relationships differ across documents
+    { source: 'project_alpha', target: 'budget_spec', relation: 'funded_at_$120,000_(Charter)', confidence: 'high', sourceText: 'Project Alpha operates on an approved budget of $120,000.', documentId: doc1Id },
+    { source: 'project_alpha', target: 'budget_spec', relation: 'funded_at_$180,000_(Audit_Report)', confidence: 'high', sourceText: 'Following the mid-year executive audit, Project Alpha operates on an approved budget of $180,000.', documentId: doc2Id },
+    { source: 'quantum_sandbox', target: 'hyperion', relation: 'hosted_on', confidence: 'high', sourceText: 'Quantum Computing Sandbox is hosted on the Hyperion Supercomputer at Oak Ridge', documentId: doc2Id },
+  ];
+
+  demoRels.forEach(r => {
+    knowledgeGraph.addRelationship(r, r.documentId);
+  });
+
+  const fullData = knowledgeGraph.toJSON();
+  res.json({
+    success: true,
+    message: 'Loaded judge-proof demo dataset with multi-hop paths and cross-document conflicts',
+    graph: fullData,
+    sampleQuestions: [
+      {
+        type: 'multi-hop',
+        label: '🔀 Multi-Hop Reasoning',
+        question: 'Which physical server room houses the computing cluster allocated to the team that Sarah Jenkins leads?',
+        expectedPath: 'Sarah Jenkins → Engineering Alpha → Apollo Computing Cluster → Server Room 4B',
+      },
+      {
+        type: 'conflict',
+        label: '⚠️ Conflict Detection',
+        question: 'What is the approved operating budget for Project Alpha across the documents?',
+        expectedConflict: '$120,000 (Charter) vs $180,000 (Executive Audit Report)',
+      },
+      {
+        type: 'abstention',
+        label: '🚫 Hallucination Abstention',
+        question: 'What is the public release date and ticket pricing for the Quantum Computing initiative?',
+        expectedRefusal: 'Strict decline / unsupported response without fabricated dates',
+      },
+    ]
+  });
 });
 
 // Clear the graph

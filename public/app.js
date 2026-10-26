@@ -38,6 +38,10 @@ const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const btnSend = document.getElementById('btn-send');
 const btnClear = document.getElementById('btn-clear');
+const btnDemo = document.getElementById('btn-demo');
+const btnExportJson = document.getElementById('btn-export-json');
+const btnExportPng = document.getElementById('btn-export-png');
+const conflictBadge = document.getElementById('conflict-badge');
 const loadingOverlay = document.getElementById('loading-overlay');
 const loadingText = document.getElementById('loading-text');
 const nodeDetail = document.getElementById('node-detail');
@@ -175,6 +179,15 @@ function renderGraph() {
     legend.innerHTML += `<span class="legend-item"><span class="legend-dot" style="background:${color}"></span>${type}</span>`;
   }
 
+  // Conflict visualizer in legend & badge
+  const hasConflicts = graphData.relationships.some(r => r.isConflict);
+  if (hasConflicts) {
+    legend.innerHTML += `<span class="legend-item conflict-item"><span class="legend-line-conflict"></span>⚠️ Conflict</span>`;
+    if (conflictBadge) conflictBadge.classList.remove('hidden');
+  } else {
+    if (conflictBadge) conflictBadge.classList.add('hidden');
+  }
+
   // Build vis.js nodes
   const nodes = new vis.DataSet(graphData.entities.map(e => ({
     id: e.id,
@@ -204,32 +217,40 @@ function renderGraph() {
     },
   })));
 
-  // Build vis.js edges
-  const edges = new vis.DataSet(graphData.relationships.map((r, i) => ({
-    id: `edge_${i}`,
-    from: r.source,
-    to: r.target,
-    label: r.relation,
-    arrows: 'to',
-    color: {
-      color: r.confidence === 'high' ? 'rgba(139, 92, 246, 0.6)' :
-             r.confidence === 'medium' ? 'rgba(245, 158, 11, 0.5)' :
-             'rgba(107, 114, 128, 0.4)',
-      highlight: '#8b5cf6',
-      hover: '#8b5cf6',
-    },
-    dashes: r.confidence === 'low',
-    font: {
-      color: '#9898b0',
-      size: 10,
-      face: 'Inter, sans-serif',
-      strokeWidth: 2,
-      strokeColor: '#0a0a0f',
-      align: 'top',
-    },
-    width: r.confidence === 'high' ? 2 : 1,
-    smooth: { type: 'continuous', roundness: 0.2 },
-  })));
+  // Build vis.js edges (with distinct Amber Dashed styling for conflicts)
+  const edges = new vis.DataSet(graphData.relationships.map((r, i) => {
+    const isConflict = Boolean(r.isConflict);
+    return {
+      id: `edge_${i}`,
+      from: r.source,
+      to: r.target,
+      label: r.relation,
+      arrows: 'to',
+      color: isConflict ? {
+        color: '#f59e0b',
+        highlight: '#fbbf24',
+        hover: '#fbbf24',
+      } : {
+        color: r.confidence === 'high' ? 'rgba(139, 92, 246, 0.6)' :
+               r.confidence === 'medium' ? 'rgba(245, 158, 11, 0.5)' :
+               'rgba(107, 114, 128, 0.4)',
+        highlight: '#8b5cf6',
+        hover: '#8b5cf6',
+      },
+      dashes: isConflict ? [6, 4] : (r.confidence === 'low'),
+      font: {
+        color: isConflict ? '#fbbf24' : '#9898b0',
+        size: isConflict ? 11 : 10,
+        face: 'Inter, sans-serif',
+        strokeWidth: 2,
+        strokeColor: '#0a0a0f',
+        align: 'top',
+        bold: isConflict,
+      },
+      width: isConflict ? 3 : (r.confidence === 'high' ? 2 : 1),
+      smooth: { type: 'continuous', roundness: 0.2 },
+    };
+  }));
 
   const options = {
     physics: {
@@ -459,6 +480,109 @@ btnClear.addEventListener('click', async () => {
   } catch (err) {
     alert('Error: ' + err.message);
   }
+});
+
+// ─── 1-Click Judge-Proof Demo Scenario ─────────────────────────────────────────
+if (btnDemo) {
+  btnDemo.addEventListener('click', async () => {
+    showLoading('Loading Judge-Proof Demo Scenario...');
+    try {
+      const res = await fetch('/api/demo', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load demo scenario');
+
+      graphData = data.graph;
+      docItems.innerHTML = '';
+      docList.classList.remove('hidden');
+
+      graphData.documents.forEach(d => {
+        const entityCount = graphData.entities.filter(e =>
+          e.sources?.some(s => s.documentId === d.id)
+        ).length;
+        addDocItem(d.name, entityCount);
+      });
+
+      updateStats();
+      renderGraph();
+
+      // Clear welcome and add notification
+      const welcome = chatMessages.querySelector('.chat-welcome');
+      if (welcome) welcome.remove();
+
+      addMessage('bot-info', '⚡ 1-Click Demo Loaded! Click any Judge Preset above to test Multi-Hop, Conflict Detection, or Abstention.');
+      hideLoading();
+    } catch (err) {
+      hideLoading();
+      alert('Error loading demo: ' + err.message);
+    }
+  });
+}
+
+// ─── Export Graph as JSON ──────────────────────────────────────────────────────
+if (btnExportJson) {
+  btnExportJson.addEventListener('click', () => {
+    if (!graphData.entities.length) {
+      alert('Knowledge graph is empty. Please upload documents or load the sample demo first.');
+      return;
+    }
+    const exportPayload = {
+      timestamp: new Date().toISOString(),
+      stats: {
+        documents: graphData.documents.length,
+        entities: graphData.entities.length,
+        relationships: graphData.relationships.length,
+      },
+      ...graphData
+    };
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `graphmind-export-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+}
+
+// ─── Save Graph Canvas Image (PNG) ─────────────────────────────────────────────
+if (btnExportPng) {
+  btnExportPng.addEventListener('click', () => {
+    if (!network || !graphData.entities.length) {
+      alert('No graph visualization active to export.');
+      return;
+    }
+    const canvas = document.querySelector('#graph-container canvas');
+    if (!canvas) {
+      alert('Canvas element not found.');
+      return;
+    }
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `graphmind-topology-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      alert('Failed to save image: ' + err.message);
+    }
+  });
+}
+
+// ─── Preset Quick Prompts ──────────────────────────────────────────────────────
+document.querySelectorAll('.prompt-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    const query = pill.getAttribute('data-query');
+    if (!query) return;
+    chatInput.value = query;
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    btnSend.disabled = false;
+    sendQuestion();
+  });
 });
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────

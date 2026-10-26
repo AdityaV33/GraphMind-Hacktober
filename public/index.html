@@ -44,9 +44,22 @@
           <span class="stat-label">Relations</span>
         </div>
       </div>
-      <button id="btn-clear" class="btn-icon" title="Clear Graph">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
-      </button>
+      <div class="header-actions">
+        <button id="btn-demo" class="btn-primary-glow" title="Load Judge-Proof Demo Scenario">
+          <span class="btn-icon-symbol">⚡</span> Load Sample Demo
+        </button>
+        <button id="btn-export-json" class="btn-action" title="Export Knowledge Graph as JSON">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          JSON
+        </button>
+        <button id="btn-export-png" class="btn-action" title="Save Graph Canvas Image as PNG">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Image
+        </button>
+        <button id="btn-clear" class="btn-icon" title="Clear Graph">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -86,12 +99,15 @@
       <!-- Graph Visualization -->
       <div id="graph-section" class="graph-section">
         <div class="graph-header">
-          <h3>🔗 Knowledge Graph</h3>
+          <div class="graph-title-group">
+            <h3>🔗 Knowledge Graph</h3>
+            <span id="conflict-badge" class="conflict-badge hidden">⚠️ Conflicts Active</span>
+          </div>
           <div class="graph-legend" id="graph-legend"></div>
         </div>
         <div id="graph-container" class="graph-container">
           <div class="graph-empty">
-            <p>Upload documents to build the knowledge graph</p>
+            <p>Upload documents or click <strong>Load Sample Demo</strong> to build the knowledge graph</p>
           </div>
         </div>
       </div>
@@ -100,27 +116,43 @@
     <!-- Right Panel: Q&A Chat -->
     <section id="right-panel">
       <div class="chat-header">
-        <h3>💬 Ask Questions</h3>
-        <span class="chat-sub">Answers are grounded in your documents</span>
+        <div class="chat-header-text">
+          <h3>💬 Grounded Q&A</h3>
+          <span class="chat-sub">Strict graph traversal • Zero hallucination</span>
+        </div>
+      </div>
+
+      <!-- Quick Demo Presets Bar -->
+      <div id="quick-prompts-bar" class="quick-prompts-bar">
+        <span class="quick-prompts-label">Judge Presets:</span>
+        <button class="prompt-pill" data-query="Which physical server room houses the computing cluster allocated to the team that Sarah Jenkins leads?">
+          🔀 Multi-Hop
+        </button>
+        <button class="prompt-pill" data-query="What is the approved operating budget for Project Alpha across the documents?">
+          ⚠️ Conflict
+        </button>
+        <button class="prompt-pill" data-query="What is the public release date and ticket pricing for the Quantum Computing initiative?">
+          🚫 Abstention
+        </button>
       </div>
 
       <div id="chat-messages" class="chat-messages">
         <div class="chat-welcome">
           <div class="welcome-icon">🧠</div>
           <h3>Welcome to GraphMind</h3>
-          <p>Upload some documents, then ask questions. I'll answer using only the facts from your documents — with citations.</p>
+          <p>Upload documents or click <strong>Load Sample Demo</strong>. Ask questions to verify multi-hop traversal, conflict detection, and hallucination refusal.</p>
           <div class="welcome-features">
             <div class="feature">
               <span class="feature-icon">📊</span>
-              <span>Multi-hop reasoning across entities</span>
+              <span><strong>Multi-Hop Reasoning</strong>: Chained structural path synthesis</span>
             </div>
             <div class="feature">
               <span class="feature-icon">⚖️</span>
-              <span>Conflicting fact detection</span>
+              <span><strong>Conflict Detection</strong>: Highlights contradictory claims with citations</span>
             </div>
             <div class="feature">
               <span class="feature-icon">🚫</span>
-              <span>Refuses to fabricate answers</span>
+              <span><strong>Abstention Guardrail</strong>: Explicit refusal on missing facts</span>
             </div>
           </div>
         </div>
