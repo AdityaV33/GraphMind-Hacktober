@@ -80,12 +80,17 @@ function setLayout(mode) {
     workspace.classList.add('layout-exploration');
     const chatPanel = document.getElementById('chat-panel');
     const graphStageWrapper = document.getElementById('graph-stage-wrapper');
+    const dockedAnalytics = document.getElementById('docked-analytics-section');
     if (chatPanel) {
       chatPanel.style.width = '';
       chatPanel.style.maxWidth = '';
     }
     if (graphStageWrapper) {
       graphStageWrapper.style.height = '';
+      graphStageWrapper.style.flex = '';
+    }
+    if (dockedAnalytics) {
+      dockedAnalytics.style.height = '';
     }
   }
 
@@ -172,17 +177,18 @@ function initResizers() {
     });
   }
 
-  // 2. Row Resizer (Graph Stage vs Docked Analytics)
-  if (resizerAnalytics && graphStageWrapper && graphWorkspacePanel) {
+  // 2. Row Resizer (Graph Stage vs Docked Analytics grounded from bottom)
+  const dockedAnalyticsSection = document.getElementById('docked-analytics-section');
+  if (resizerAnalytics && dockedAnalyticsSection && graphWorkspacePanel) {
     let isDraggingRow = false;
     let startY = 0;
-    let startGraphHeight = 0;
+    let startAnalyticsHeight = 0;
 
     resizerAnalytics.addEventListener('mousedown', (e) => {
       if (currentLayout !== 'chat-expanded') return;
       isDraggingRow = true;
       startY = e.clientY;
-      startGraphHeight = graphStageWrapper.getBoundingClientRect().height;
+      startAnalyticsHeight = dockedAnalyticsSection.getBoundingClientRect().height;
       resizerAnalytics.classList.add('is-dragging');
       document.body.classList.add('is-resizing-row');
       e.preventDefault();
@@ -192,8 +198,14 @@ function initResizers() {
       if (!isDraggingRow) return;
       const totalHeight = graphWorkspacePanel.getBoundingClientRect().height;
       const deltaY = e.clientY - startY;
-      const newHeight = Math.max(160, Math.min(totalHeight - 140, startGraphHeight + deltaY));
-      graphStageWrapper.style.height = newHeight + 'px';
+      const minHeight = 120;
+      const maxHeight = Math.max(minHeight, totalHeight - 160);
+      const newHeight = Math.max(minHeight, Math.min(maxHeight, startAnalyticsHeight - deltaY));
+      dockedAnalyticsSection.style.height = newHeight + 'px';
+      if (graphStageWrapper) {
+        graphStageWrapper.style.flex = '1';
+        graphStageWrapper.style.height = 'auto';
+      }
       if (network) network.redraw();
     });
 
@@ -223,16 +235,19 @@ function initResizers() {
     });
   }
 
-  // 4. Quick Toggle Presets for Graph vs Analytics (52% / 32% / 75%)
-  if (btnResizeAnalytics && graphStageWrapper && graphWorkspacePanel) {
+  // 4. Quick Toggle Presets for Bottom Analytics (Default 270px -> Expanded 440px -> Compact 150px)
+  if (btnResizeAnalytics && dockedAnalyticsSection && graphWorkspacePanel) {
     let analyticsPresetIndex = 0;
-    const presets = [0.52, 0.32, 0.75];
+    const presets = [270, 440, 150];
     btnResizeAnalytics.addEventListener('click', () => {
       analyticsPresetIndex = (analyticsPresetIndex + 1) % presets.length;
-      const totalHeight = graphWorkspacePanel.getBoundingClientRect().height;
-      const targetHeight = Math.round(totalHeight * presets[analyticsPresetIndex]);
-      graphStageWrapper.style.height = targetHeight + 'px';
-      btnResizeAnalytics.setAttribute('title', `Graph size: ${Math.round(presets[analyticsPresetIndex] * 100)}% (click to cycle)`);
+      const targetHeight = presets[analyticsPresetIndex];
+      dockedAnalyticsSection.style.height = targetHeight + 'px';
+      if (graphStageWrapper) {
+        graphStageWrapper.style.flex = '1';
+        graphStageWrapper.style.height = 'auto';
+      }
+      btnResizeAnalytics.setAttribute('title', `Analytics height: ${targetHeight}px (click to cycle)`);
       setTimeout(() => {
         if (network) network.fit({ animation: true });
       }, 300);

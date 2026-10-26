@@ -245,13 +245,13 @@ html, body {
 }
 
 #app-workspace.layout-chat-expanded #graph-stage-wrapper {
-  height: 52%;
+  flex: 1;
   min-height: 180px;
-  max-height: 85%;
-  flex-shrink: 0;
+  height: auto;
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
 }
 
 #app-workspace.layout-chat-expanded #floating-analytics-panel {
@@ -261,13 +261,22 @@ html, body {
   display: none !important;
 }
 
+#app-workspace.layout-chat-expanded #resizer-analytics {
+  display: flex;
+}
+
 #app-workspace.layout-chat-expanded #docked-analytics-section {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 160px;
+  height: 270px;
+  min-height: 120px;
+  max-height: 70%;
+  flex-shrink: 0;
   background: var(--surface-1);
   overflow-y: auto;
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+  margin-bottom: 0;
 }
 
 #app-workspace.layout-chat-expanded #chat-panel {
@@ -296,7 +305,7 @@ html, body {
   position: relative;
   z-index: 25;
   cursor: row-resize;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   background: transparent;
@@ -641,17 +650,23 @@ body.is-resizing-row * {
 .empty-state p { color: var(--text-2); font-size: 13px; }
 .empty-state .empty-sub { font-size: 11px; color: var(--text-3); margin-top: 4px; }
 
-/* ─── Floating Analytics Panel (Exploration Mode, Upper-Right) ────────── */
+/* ─── Floating Analytics Panel (Exploration Mode, Anchored from Bottom) ─ */
 .floating-analytics-panel {
   position: absolute;
-  top: 48px; right: 14px;
+  bottom: 0;
+  right: 18px;
+  top: auto;
   width: 320px;
-  max-height: calc(100% - 110px);
-  background: rgba(16, 19, 27, 0.88);
+  max-height: calc(100% - 64px);
+  background: rgba(16, 19, 27, 0.94);
   backdrop-filter: blur(14px);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-elevated);
+  border-bottom: none;
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.65);
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -745,10 +760,12 @@ body.is-resizing-row * {
   background: var(--violet); color: white; font-size: 10px; font-weight: 600; cursor: pointer;
 }
 
-/* ─── Collapsed Chat Launcher (Exploration Mode, Lower-Right) ─────────── */
+/* ─── Collapsed Chat Launcher (Exploration Mode, Lower-Left) ─────────── */
 .collapsed-chat-launcher {
   position: absolute;
-  bottom: 16px; right: 16px;
+  bottom: 16px;
+  left: 18px;
+  right: auto;
   z-index: 35;
   animation: fadeIn 0.4s ease-out;
 }
