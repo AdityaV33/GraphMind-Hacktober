@@ -1,5 +1,5 @@
 # GraphMind — Grounded Knowledge-Graph Q&A
-## Live Demo
+
 
 [View Live Website](https://graphmind-hacktober.onrender.com/)
 
